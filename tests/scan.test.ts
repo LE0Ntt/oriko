@@ -59,6 +59,20 @@ describe("scanClipping", () => {
     expect(r.haystack).toContain("design");
   });
 
+  it("searches a clipping's caption and the text in its media", () => {
+    const r = scanClipping(
+      "Clippings/Pasted image.md",
+      {
+        title: "Pasted image 2026-08-18 190337",
+        caption: "A golfer swings on a range mat.",
+        media_text: "No Tension",
+      },
+      ""
+    );
+    expect(r.haystack).toContain("golfer swings");
+    expect(r.haystack).toContain("no tension");
+  });
+
   it("finds video declared with a nested source element", () => {
     const r = scanClipping("Clippings/Rachel How.md", RACHEL_FM, RACHEL_BODY);
     expect(r.media).toHaveLength(2);

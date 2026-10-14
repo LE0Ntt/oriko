@@ -249,7 +249,11 @@ export function scanClipping(
   const status = str(frontmatter.status, "unread") || "unread";
   const created = str(frontmatter.created);
 
-  const haystack = [title, description, domainOf(source), ...categories, status]
+  // What Describe wrote: a caption of the media and the text found in it, so
+  // a media-only clipping is findable by what it shows.
+  const caption = str(frontmatter.caption);
+  const mediaText = str(frontmatter.media_text);
+  const haystack = [title, description, domainOf(source), ...categories, status, caption, mediaText]
     .join(" ")
     .toLowerCase();
 
