@@ -1,0 +1,259 @@
+/**
+ * The engine contract for Describe, and everything about talking to Claude
+ * Code that can be settled without running it: the command line, the one
+ * message a batch is sent as, the environment it runs in, and reading the
+ * answer back.
+ *
+ * Pure, so the shape of a run is tested against output captured from real
+ * runs (tests/fixtures/describe). Starting the process is src/claude-engine.ts.
+ */
+
+export interface DescribeJob {
+  /** Position in its batch, which is the label Claude answers by. */
+  id: number;
+  /** The note, for the caller. Never sent. */
+  path: string;
+  /** Base64 JPEG without a data: prefix, or null when the clipping has no usable media. */
+  image: string | null;
+  title: string;
+  description: string;
+  domain: string;
+  /** The note body with media embeds removed, already cut to length. */
+  body: string;
+}
+
+export interface Proposal {
+  term: string;
+  definition: string;
+}
+
+/** One clipping's answer as Claude gave it, before Oriko checks it. */
+export interface RawResult {
+  id: number;
+  categories: string[];
+  proposals: Proposal[];
+  fallback: string;
+  caption: string;
+  media_text: string;
+}
+
+export type EngineFailure = "not-logged-in" | "usage-limit" | "rate-limit" | "error";
+
+export type RunOutcome =
+  | { ok: true; results: RawResult[] }
+  | { ok: false; failure: EngineFailure; message: string };
+
+export const SYSTEM_PROMPT =
+  "You describe saved web clippings for a visual bookmark wall. Each clipping is an image, " +
+  "or a 2x2 grid of four frames sampled across one video, plus the text of its note. For a " +
+  "frame grid, describe the video. Answer only through the structured output.";
+
+const ITEM_SCHEMA = {
+  type: "object",
+  properties: {
+    id: { type: "integer" },
+    categories: { type: "array", items: { type: "string" } },
+    proposals: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: { term: { type: "string" }, definition: { type: "string" } },
+        required: ["term", "definition"],
+      },
+    },
+    fallback: { type: "string" },
+    caption: { type: "string" },
+    media_text: { type: "string" },
+  },
+  required: ["id", "categories", "proposals", "fallback", "caption", "media_text"],
+};
+
+export const BATCH_SCHEMA = {
+  type: "object",
+  properties: { items: { type: "array", items: ITEM_SCHEMA } },
+  required: ["items"],
+};
+
+/**
+ * The command line, measured on 2026-10-14 with Claude Code 2.1.299.
+ *
+ * `--bare` is left out on purpose: it requires an API-key login and answers a
+ * subscription login with "Not logged in". Hooks are switched off through
+ * settings, which also keeps the user's own hooks out of every call and cut a
+ * one-image call from 7,661 input tokens to 2,487.
+ */
+export function claudeArgs(): string[] {
+  return [
+    "-p",
+    "--model",
+    "haiku",
+    "--effort",
+    "low",
+    "--strict-mcp-config",
+    "--settings",
+    JSON.stringify({ disableAllHooks: true }),
+    "--tools",
+    "",
+    "--system-prompt",
+    SYSTEM_PROMPT,
+    "--input-format",
+    "stream-json",
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "--json-schema",
+    JSON.stringify(BATCH_SCHEMA),
+    "--no-session-persistence",
+  ];
+}
+
+function noteText(job: DescribeJob): string {
+  return [
+    `Title: ${job.title}`,
+    job.description && `Description: ${job.description}`,
+    job.domain && `Source: ${job.domain}`,
+    job.body && `Note: ${job.body}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function instructions(vocabulary: string[]): string {
+  const existing = vocabulary.length > 0 ? vocabulary.join(", ") : "none yet";
+  return [
+    `Existing categories: ${existing}.`,
+    "",
+    "Return one item per clipping above, with the clipping's number as its id:",
+    "- categories: 1 to 4 terms copied exactly from the existing categories, or an empty list when none fit.",
+    "- proposals: only when no existing category fits what the clipping is about, up to 2 new lowercase-kebab terms, each with a one-line definition. Reuse an existing term whenever one fits.",
+    "- fallback: the single closest existing category, or an empty string when there are none.",
+    "- caption: one sentence describing what the media shows.",
+    "- media_text: the legible text in the media, verbatim, condensed to the meaningful lines, or an empty string when there is none.",
+  ].join("\n");
+}
+
+/** The batch as the single stream-json user message Claude Code reads on stdin. */
+export function batchMessage(jobs: DescribeJob[], vocabulary: string[]): string {
+  const content: unknown[] = [];
+  for (const job of jobs) {
+    content.push({ type: "text", text: `Clipping ${job.id}:` });
+    if (job.image) {
+      content.push({
+        type: "image",
+        source: { type: "base64", media_type: "image/jpeg", data: job.image },
+      });
+    }
+    content.push({ type: "text", text: noteText(job) });
+  }
+  content.push({ type: "text", text: instructions(vocabulary) });
+  return JSON.stringify({ type: "user", message: { role: "user", content } }) + "\n";
+}
+
+interface StreamLine {
+  type?: string;
+  is_error?: boolean;
+  result?: unknown;
+  structured_output?: unknown;
+  error?: unknown;
+  rate_limit_info?: { status?: string };
+}
+
+function text(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+function strings(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : [];
+}
+
+function toResult(value: unknown, fallbackId: number): RawResult | null {
+  if (!value || typeof value !== "object") return null;
+  const v = value as Record<string, unknown>;
+  const proposals: Proposal[] = Array.isArray(v.proposals)
+    ? v.proposals.flatMap((p) => {
+        if (!p || typeof p !== "object") return [];
+        const q = p as Record<string, unknown>;
+        const term = text(q.term).trim();
+        return term ? [{ term, definition: text(q.definition).trim() }] : [];
+      })
+    : [];
+  return {
+    id: typeof v.id === "number" ? v.id : fallbackId,
+    categories: strings(v.categories),
+    proposals,
+    fallback: text(v.fallback),
+    caption: text(v.caption),
+    media_text: text(v.media_text),
+  };
+}
+
+/** Reads Claude Code's stream-json stdout: the final result line, and the signals before it. */
+export function parseRun(stdout: string): RunOutcome {
+  let result: StreamLine | null = null;
+  let limited = false;
+  let authFailed = false;
+
+  for (const raw of stdout.split("\n")) {
+    const trimmed = raw.trim();
+    if (!trimmed.startsWith("{")) continue;
+    let line: StreamLine;
+    try {
+      line = JSON.parse(trimmed) as StreamLine;
+    } catch {
+      continue;
+    }
+    if (line.type === "rate_limit_event") {
+      const status = line.rate_limit_info?.status ?? "allowed";
+      if (!status.startsWith("allowed")) limited = true;
+    }
+    if (line.type === "assistant" && line.error === "authentication_failed") authFailed = true;
+    if (line.type === "result") result = line;
+  }
+
+  if (!result) return { ok: false, failure: "error", message: "Claude Code ended without an answer" };
+
+  const message = text(result.result);
+  const answer = result.structured_output;
+  if (result.is_error || answer === undefined || answer === null || typeof answer !== "object") {
+    if (authFailed || /not logged in|\/login/i.test(message)) {
+      return { ok: false, failure: "not-logged-in", message };
+    }
+    if (limited || /usage limit|limit reached/i.test(message)) {
+      return { ok: false, failure: "usage-limit", message };
+    }
+    if (/rate limit|429|overloaded/i.test(message)) {
+      return { ok: false, failure: "rate-limit", message };
+    }
+    return { ok: false, failure: "error", message: message || "Claude Code gave no structured answer" };
+  }
+
+  const items = Array.isArray((answer as { items?: unknown }).items)
+    ? (answer as { items: unknown[] }).items
+    : [answer];
+  const results = items
+    .map((item, index) => toResult(item, index))
+    .filter((r): r is RawResult => r !== null);
+  return { ok: true, results };
+}
+
+/**
+ * The environment Claude Code starts in: the desktop session's own, without
+ * ANTHROPIC_API_KEY so it uses its own login (the subscription), and with its
+ * folder and Homebrew's on PATH, because Electron on macOS starts without the
+ * shell profile that puts them there and an npm-installed claude needs node.
+ */
+export function childEnv(
+  base: Record<string, string | undefined>,
+  toolDir: string,
+  delimiter: string
+): Record<string, string | undefined> {
+  const env: Record<string, string | undefined> = { ...base };
+  delete env.ANTHROPIC_API_KEY;
+  const key = delimiter === ";" && !("PATH" in env) ? "Path" : "PATH";
+  const extra = delimiter === ":" ? [toolDir, "/opt/homebrew/bin", "/usr/local/bin"] : [toolDir];
+  const dirs = [...extra, ...(env[key] ?? "").split(delimiter)].filter(
+    (dir, index, all) => dir.length > 0 && all.indexOf(dir) === index
+  );
+  env[key] = dirs.join(delimiter);
+  return env;
+}
