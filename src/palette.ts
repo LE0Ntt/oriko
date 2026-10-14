@@ -1,12 +1,15 @@
 import { scrollRowIntoList } from "./scroll";
 import { setIcon } from "obsidian";
 import type { PaletteCommand, PaletteStage } from "./core/commands";
+import { subjectSummary } from "./core/describe";
 import { resumeIndex, searchPalette } from "./core/palette-results";
 import type { PaletteRow, SearchOptions } from "./core/palette-results";
 import type { MatchRange } from "./core/palette-search";
 import type { ClippingRecord } from "./core/scan";
 
 const ROOT_PLACEHOLDER = "Search clippings and actions…";
+/** Thumbnails shown for a stage's subject before the rest collapse into a count. */
+const SUBJECT_THUMBS = 6;
 
 export interface PaletteHandlers {
   /**
@@ -48,6 +51,7 @@ export class Palette {
   private input: HTMLInputElement | null = null;
   private listEl: HTMLElement | null = null;
   private chipEl: HTMLElement | null = null;
+  private subjectEl: HTMLElement | null = null;
   private onKey: ((event: KeyboardEvent) => void) | null = null;
 
   /**
@@ -116,6 +120,8 @@ export class Palette {
       this.render();
     };
 
+    this.subjectEl = this.panel.createDiv({ cls: "pg-palette-subject" });
+
     this.listEl = this.panel.createDiv({ cls: "pg-palette-list" });
     this.listEl.onmousemove = (event: MouseEvent) => {
       if (this.hoverArmed) return;
@@ -155,6 +161,7 @@ export class Palette {
     this.input = null;
     this.listEl = null;
     this.chipEl = null;
+    this.subjectEl = null;
     this.stageId = null;
     this.stage = null;
     this.rows = [];
@@ -347,6 +354,7 @@ export class Palette {
       : searchPalette(query, commands, values, this.handlers.clippings(), options);
 
     this.paintChip();
+    this.paintSubject();
 
     if (groups.length === 0) {
       list.createDiv({ cls: "pg-palette-empty", text: "No matches" });
@@ -382,6 +390,53 @@ export class Palette {
     chip.empty();
     chip.toggleClass("is-visible", this.stage !== null);
     if (this.stage) chip.createSpan({ text: this.stage.title });
+  }
+
+  /**
+   * What the open stage is about to act on, above its choices: one clipping
+   * by picture, title and labels, or a strip of pictures and a count. Display
+   * only, so it is drawn outside the list and never takes the selection.
+   */
+  private paintSubject(): void {
+    const band = this.subjectEl;
+    if (!band) return;
+    band.empty();
+    const paths = this.stage?.subject ?? [];
+    band.toggleClass("is-visible", paths.length > 0);
+    if (paths.length === 0) return;
+
+    const byPath = new Map(this.handlers.clippings().map((record) => [record.path, record]));
+    const summary = subjectSummary(paths, (path) => byPath.get(path));
+    band.toggleClass("is-single", summary.title !== undefined);
+
+    const thumbs = band.createDiv({ cls: "pg-palette-subject-thumbs" });
+    for (const path of paths.slice(0, SUBJECT_THUMBS)) {
+      const cell = thumbs.createDiv({ cls: "pg-palette-subject-thumb" });
+      const url = this.handlers.preview(path);
+      if (!url) continue;
+      const image = cell.createEl("img");
+      image.loading = "lazy";
+      image.decoding = "async";
+      image.src = url;
+    }
+    if (paths.length > SUBJECT_THUMBS) {
+      thumbs.createDiv({ cls: "pg-palette-subject-more", text: `+${paths.length - SUBJECT_THUMBS}` });
+    }
+
+    const text = band.createDiv({ cls: "pg-palette-subject-text" });
+    if (summary.title !== undefined) {
+      text.createDiv({ cls: "pg-palette-subject-title", text: summary.title });
+      text.createDiv({
+        cls: "pg-palette-subject-labels",
+        text: summary.labels && summary.labels.length > 0 ? summary.labels.join(" · ") : "No labels yet",
+      });
+    } else {
+      text.createDiv({ cls: "pg-palette-subject-title", text: `${summary.count} clippings` });
+      text.createDiv({
+        cls: "pg-palette-subject-labels",
+        text: `${summary.labelled} already labelled · ${summary.count - summary.labelled} with none`,
+      });
+    }
   }
 
   private paintRow(list: HTMLElement, row: PaletteRow): HTMLElement {

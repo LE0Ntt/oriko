@@ -37,6 +37,12 @@ export interface RawResult {
   media_text: string;
 }
 
+/**
+ * How deep the labels go, chosen per run. Broad keeps to the most general
+ * labels on the wall; Specific may name the thing itself (projector).
+ */
+export type Depth = "broad" | "standard" | "specific";
+
 export type EngineFailure = "not-logged-in" | "usage-limit" | "rate-limit" | "not-found" | "error";
 
 export type RunOutcome =
@@ -118,14 +124,28 @@ function noteText(job: DescribeJob): string {
     .join("\n");
 }
 
-function instructions(vocabulary: string[]): string {
+const LABEL_RULES: Record<Depth, string[]> = {
+  broad: [
+    "- categories: 1 or 2 of the most general existing categories that fit, or an empty list when none fit.",
+    "- proposals: only when no existing category fits at all, at most 1 new broad lowercase-kebab term with a one-line definition. Reuse an existing term whenever one fits.",
+  ],
+  standard: [
+    "- categories: 1 to 4 terms copied exactly from the existing categories, or an empty list when none fit.",
+    "- proposals: only when no existing category fits what the clipping is about, up to 2 new lowercase-kebab terms, each with a one-line definition. Reuse an existing term whenever one fits.",
+  ],
+  specific: [
+    "- categories: up to 6 terms copied exactly from the existing categories, including narrow ones that name the thing itself.",
+    "- proposals: up to 3 new lowercase-kebab terms for the specific things the clipping is about (the object, product type, technique or place, such as projector), even when a broader existing category also fits. Name kinds of things, never brands or model names. Each gets a one-line definition. Reuse an existing term whenever one fits.",
+  ],
+};
+
+function instructions(vocabulary: string[], depth: Depth): string {
   const existing = vocabulary.length > 0 ? vocabulary.join(", ") : "none yet";
   return [
     `Existing categories: ${existing}.`,
     "",
     "Return one item per clipping above, with the clipping's number as its id:",
-    "- categories: 1 to 4 terms copied exactly from the existing categories, or an empty list when none fit.",
-    "- proposals: only when no existing category fits what the clipping is about, up to 2 new lowercase-kebab terms, each with a one-line definition. Reuse an existing term whenever one fits.",
+    ...LABEL_RULES[depth],
     "- fallback: the single closest existing category, or an empty string when there are none.",
     "- caption: one sentence describing what the media shows.",
     "- media_text: the legible text in the media, verbatim, condensed to the meaningful lines, or an empty string when there is none.",
@@ -133,7 +153,7 @@ function instructions(vocabulary: string[]): string {
 }
 
 /** The batch as the single stream-json user message Claude Code reads on stdin. */
-export function batchMessage(jobs: DescribeJob[], vocabulary: string[]): string {
+export function batchMessage(jobs: DescribeJob[], vocabulary: string[], depth: Depth = "standard"): string {
   const content: unknown[] = [];
   for (const job of jobs) {
     content.push({ type: "text", text: `Clipping ${job.id}:` });
@@ -145,7 +165,7 @@ export function batchMessage(jobs: DescribeJob[], vocabulary: string[]): string 
     }
     content.push({ type: "text", text: noteText(job) });
   }
-  content.push({ type: "text", text: instructions(vocabulary) });
+  content.push({ type: "text", text: instructions(vocabulary, depth) });
   return JSON.stringify({ type: "user", message: { role: "user", content } }) + "\n";
 }
 

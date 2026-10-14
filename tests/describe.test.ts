@@ -18,6 +18,7 @@ import {
   resolveReview,
   retainPending,
   snapshot,
+  subjectSummary,
   suggestionsFor,
   validate,
   wallVocabulary,
@@ -334,5 +335,56 @@ describe("media sizes", () => {
   it("gives each video frame half the grid's width", () => {
     expect(gridCell(1920, 1080)).toEqual({ width: 512, height: 288 });
     expect(gridCell(1080, 1920)).toEqual({ width: 512, height: 910 });
+  });
+});
+
+describe("depth", () => {
+  it("caps categories by depth", () => {
+    const vocab = ["a", "b", "c", "d", "e", "f", "g"];
+    expect(validate(raw({ categories: vocab }), "a.md", vocab, "broad").categories).toHaveLength(2);
+    expect(validate(raw({ categories: vocab }), "a.md", vocab, "specific").categories).toHaveLength(6);
+    expect(validate(raw({ categories: vocab }), "a.md", vocab).categories).toHaveLength(4);
+  });
+
+  it("adds to a selected clipping's labels without removing any", () => {
+    const d = described({ categories: ["gear", "projector"] });
+    expect(describedValues(["gear", "shopping"], d, { add: true, cap: 6 })).toEqual({
+      caption: "A caption.",
+      media_text: "",
+      categories: ["gear", "shopping", "projector"],
+    });
+  });
+
+  it("adds nothing past the cap, and never drops what is there", () => {
+    const d = described({ categories: ["projector"] });
+    expect(describedValues(["a", "b"], d, { add: true, cap: 2 })).toEqual({ caption: "A caption.", media_text: "" });
+  });
+
+  it("offers suggestions for a selected clipping that has room", () => {
+    const d = described({ proposals: [{ term: "projector", definition: "" }], fallback: "gear" });
+    expect(suggestionsFor(["gear", "shopping"], d, { selected: true, cap: 6 }).proposals).toHaveLength(1);
+    expect(suggestionsFor(["a", "b"], d, { selected: true, cap: 2 }).proposals).toEqual([]);
+    expect(suggestionsFor(["gear"], d).proposals).toEqual([]);
+  });
+});
+
+describe("subjectSummary", () => {
+  const records = new Map([
+    ["reel.md", record("reel.md", { title: "AWOL Vision LuxVision", categories: ["gear", "shopping"] })],
+    ["new.md", record("new.md")],
+  ]);
+  const find = (path: string): ClippingRecord | undefined => records.get(path);
+
+  it("names a single clipping and its labels", () => {
+    expect(subjectSummary(["reel.md"], find)).toEqual({
+      count: 1,
+      labelled: 1,
+      title: "AWOL Vision LuxVision",
+      labels: ["gear", "shopping"],
+    });
+  });
+
+  it("counts how many of several already have labels", () => {
+    expect(subjectSummary(["reel.md", "new.md", "gone.md"], find)).toEqual({ count: 2, labelled: 1 });
   });
 });

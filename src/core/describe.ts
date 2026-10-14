@@ -1,4 +1,4 @@
-import type { Proposal, RawResult } from "./claude-engine";
+import type { Depth, Proposal, RawResult } from "./claude-engine";
 import type { FrontmatterWrite } from "./editable";
 import type { ClippingRecord } from "./scan";
 
@@ -14,6 +14,8 @@ export const CONCURRENCY = 6;
 export const BATCH_TIMEOUT_MS = 120000;
 export const SINGLE_TIMEOUT_MS = 60000;
 export const MAX_CATEGORIES = 4;
+/** How many labels a clipping may carry after a run at each depth. */
+export const DEPTH_CAPS: Record<Depth, number> = { broad: 2, standard: MAX_CATEGORIES, specific: 6 };
 export const CAPTION_LIMIT = 300;
 export const MEDIA_TEXT_LIMIT = 1000;
 export const BODY_LIMIT = 1500;
@@ -156,10 +158,16 @@ function cut(value: string, limit: number): string {
   return value.length > limit ? `${value.slice(0, limit - 1).trimEnd()}…` : value;
 }
 
-export function validate(raw: RawResult, path: string, vocabulary: readonly string[]): Described {
+export function validate(
+  raw: RawResult,
+  path: string,
+  vocabulary: readonly string[],
+  depth: Depth = "standard"
+): Described {
+  const cap = DEPTH_CAPS[depth];
   const categories: string[] = [];
   const add = (term: string | null): void => {
-    if (term && !categories.includes(term) && categories.length < MAX_CATEGORIES) categories.push(term);
+    if (term && !categories.includes(term) && categories.length < cap) categories.push(term);
   };
   for (const category of raw.categories) add(matchVocabulary(category, vocabulary));
 
@@ -210,12 +218,31 @@ export function matchResults<T extends { id: number }>(
   return { matched, missing };
 }
 
-/** What one described clipping gets written. Categories only when it has none. */
-export function describedValues(existing: readonly string[], described: Described): FrontmatterWrite {
+export interface WriteMode {
+  /** Add to a clipping's labels, for a selection re-run. Without it, categories go only to a clipping that has none. */
+  add?: boolean;
+  /** The most labels a clipping may end up with; existing ones are kept even past it. */
+  cap?: number;
+}
+
+/** What one described clipping gets written. Labels are only ever added, never removed. */
+export function describedValues(
+  existing: readonly string[],
+  described: Described,
+  mode: WriteMode = {}
+): FrontmatterWrite {
   const values: FrontmatterWrite = { caption: described.caption, media_text: described.mediaText };
-  if (existing.length === 0 && described.categories.length > 0) {
-    values.categories = described.categories;
+  if (!mode.add) {
+    if (existing.length === 0 && described.categories.length > 0) values.categories = described.categories;
+    return values;
   }
+  const cap = mode.cap ?? MAX_CATEGORIES;
+  const next = [...existing];
+  for (const term of described.categories) {
+    if (next.length >= cap) break;
+    if (!next.includes(term)) next.push(term);
+  }
+  if (next.length > existing.length) values.categories = next;
   return values;
 }
 
@@ -244,12 +271,32 @@ export interface PendingStore {
 export const EMPTY_PENDING: PendingStore = { terms: [], fallbacks: {} };
 
 /**
- * The suggestions a described clipping contributes to the review. Only a
- * clipping that had no categories gets any: one the user had already filed
- * keeps its categories untouched, by the spec's scope.
+ * The suggestions a described clipping contributes to the review. A clipping
+ * with no categories always gets them. One already filed gets them only when
+ * the user selected it for this run, and only while it has room under the
+ * run's cap.
  */
-export function suggestionsFor(existing: readonly string[], described: Described): Described {
-  return existing.length === 0 ? described : { ...described, proposals: [], fallback: null };
+export function suggestionsFor(
+  existing: readonly string[],
+  described: Described,
+  options: { selected?: boolean; cap?: number } = {}
+): Described {
+  const cap = options.cap ?? MAX_CATEGORIES;
+  const keep = existing.length === 0 || (options.selected === true && existing.length < cap);
+  return keep ? described : { ...described, proposals: [], fallback: null };
+}
+
+/** What the palette shows above the depth choice: one clipping by name, or a count. */
+export function subjectSummary(
+  paths: readonly string[],
+  record: (path: string) => ClippingRecord | undefined
+): { count: number; labelled: number; title?: string; labels?: string[] } {
+  const found = paths.map(record).filter((r): r is ClippingRecord => r !== undefined);
+  const labelled = found.filter((r) => r.categories.length > 0).length;
+  if (found.length === 1) {
+    return { count: 1, labelled, title: found[0].title, labels: [...found[0].categories] };
+  }
+  return { count: found.length, labelled };
 }
 
 export function addPending(store: PendingStore, described: Described): PendingStore {

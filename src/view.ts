@@ -1751,7 +1751,7 @@ export class OrikoView extends ItemView {
       hasSystem: this.onDisk(),
       canExport: this.onDisk() || canShareFiles(navigator),
       describe: this.plugin.describeAvailable()
-        ? this.plugin.describer.context(needsDescribing(this.plugin.index.records()).length)
+        ? this.plugin.describer.context(needsDescribing(this.plugin.index.records()).map((r) => r.path))
         : null,
       // Every row runs the method its context-menu equivalent runs. The two
       // surfaces list different things; neither reimplements the work.
@@ -1778,12 +1778,14 @@ export class OrikoView extends ItemView {
         archiveAll: () => this.plugin.archiveAllMedia(),
         selectAll: () => this.grid?.selectAll(),
         resetZoom: () => this.grid?.resetView(),
-        describeUncategorized: () =>
+        describeUncategorized: (depth) =>
           void this.plugin.describer.describe(
             needsDescribing(this.plugin.index.records()).map((record) => record.path),
-            this.describeWriter()
+            this.describeWriter(),
+            { depth }
           ),
-        describeSelected: (ids) => void this.plugin.describer.describe(ids, this.describeWriter()),
+        describeSelected: (ids, depth) =>
+          void this.plugin.describer.describe(ids, this.describeWriter(), { depth, selected: true }),
         stopDescribing: () => this.plugin.describer.stop(),
         retryDescribeFailed: () => void this.plugin.describer.retryFailed(this.describeWriter()),
         toggleSuggestion: (term) => this.plugin.describer.toggle(term),

@@ -2042,6 +2042,79 @@
   display: block;
 }
 
+/* What a stage is about to act on, shown above its choices so the choice is
+   made looking at it. Display only: it never takes the selection. */
+.pg-palette-subject {
+  display: none;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 13px;
+  border-bottom: 1px solid var(--pg-rule);
+}
+
+.pg-palette-subject.is-visible {
+  display: flex;
+}
+
+.pg-palette-subject-thumbs {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+}
+
+.pg-palette-subject-thumb {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--pg-inner-well);
+}
+
+.pg-palette-subject.is-single .pg-palette-subject-thumb {
+  width: 52px;
+  height: 52px;
+  border-radius: 8px;
+}
+
+.pg-palette-subject-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.pg-palette-subject-more {
+  padding-left: 2px;
+  color: var(--pg-surface-text);
+  font-size: 12px;
+  opacity: 0.6;
+}
+
+.pg-palette-subject-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.pg-palette-subject-title,
+.pg-palette-subject-labels {
+  overflow: hidden;
+  color: var(--pg-surface-text);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.pg-palette-subject-title {
+  font-size: 13px;
+}
+
+.pg-palette-subject-labels {
+  font-size: 12px;
+  opacity: 0.6;
+}
+
 /* Selector carries the view as well as the panel, so it outranks Obsidian's
    own input styling, which otherwise paints a filled box with its own border. */
 .oriko-view .pg-palette input.pg-palette-input {

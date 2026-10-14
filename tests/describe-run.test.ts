@@ -70,9 +70,10 @@ function harness(
   const runner = new DescribeRunner(
     {
       engine: {
-        run: (jobs, vocabulary, timeoutMs) => {
+        run: (jobs, vocabulary, timeoutMs, depth) => {
           events.push(`run:${jobs.map((job) => job.path).join(",")}`);
-          return run(jobs, vocabulary, timeoutMs);
+          events.push(`depth:${depth}`);
+          return run(jobs, vocabulary, timeoutMs, depth);
         },
         cancelAll: () => {
           events.push("cancel");
@@ -133,7 +134,7 @@ describe("DescribeRunner", () => {
     await h.runner.describe(["a.md", "b.md", "c.md"], h.writer);
     expect(h.written.map(([path]) => path)).toEqual(["a.md", "c.md"]);
     expect(h.entries).toHaveLength(1);
-    expect(h.runner.context(0).failed).toBe(1);
+    expect(h.runner.context([]).failed).toBe(1);
     expect(h.notices.at(-1)).toBe("Oriko: 2 described, 1 failed");
   });
 
@@ -182,7 +183,7 @@ describe("DescribeRunner", () => {
     h.runner.setPending(pending({ terms: [{ term: "old", definition: "", paths: ["x.md"] }], fallbacks: {} }));
     await h.runner.describe(["a.md"], h.writer);
     expect(h.notices.at(-1)).toBe("Oriko: 1 described, 1 category to review");
-    expect(h.runner.context(0).pending.map((p) => p.term)).toEqual(["old", "food"]);
+    expect(h.runner.context([]).pending.map((p) => p.term)).toEqual(["old", "food"]);
   });
 
   it("leaves a filed clipping out of the suggestions", async () => {
@@ -194,7 +195,7 @@ describe("DescribeRunner", () => {
       }),
     });
     await h.runner.describe(["filed.md"], h.writer);
-    expect(h.runner.context(0).pending).toEqual([]);
+    expect(h.runner.context([]).pending).toEqual([]);
     expect(h.written[0][1]).toEqual({ caption: "Caption 0.", media_text: "" });
   });
 
@@ -234,8 +235,8 @@ describe("DescribeRunner", () => {
     expect(h.notices.at(-1)).toBe(
       "Oriko: categories updated on 1 clipping, 1 skipped (renamed or deleted), 1 failed (kept for the next review)"
     );
-    expect(h.runner.context(0).pending).toEqual([{ term: "food", definition: "D", count: 1 }]);
-    expect(h.runner.context(0).accepted.has("food")).toBe(true);
+    expect(h.runner.context([]).pending).toEqual([{ term: "food", definition: "D", count: 1 }]);
+    expect(h.runner.context([]).accepted.has("food")).toBe(true);
   });
 
   it("stops when asked and keeps what it wrote", async () => {
@@ -253,5 +254,61 @@ describe("DescribeRunner", () => {
     expect(h.written.map(([path]) => path)).toEqual(["a.md"]);
     expect(h.entries).toHaveLength(1);
     expect(h.notices.at(-1)).toBe("Oriko: 1 described (stopped)");
+  });
+});
+
+describe("DescribeRunner depth", () => {
+  it("sends the chosen depth to the engine", async () => {
+    const h = harness({ paths: ["a.md"] });
+    await h.runner.describe(["a.md"], h.writer, { depth: "specific" });
+    expect(h.events).toContain("depth:specific");
+  });
+
+  it("uses Standard when no depth is given", async () => {
+    const h = harness({ paths: ["a.md"] });
+    await h.runner.describe(["a.md"], h.writer);
+    expect(h.events).toContain("depth:standard");
+  });
+
+  it("adds a specific label to a selected clipping that already has some", async () => {
+    const h = harness({
+      filed: [rec("reel.md", ["gear", "shopping"]), rec("tv.md", ["projector"])],
+      run: async (jobs) => ({
+        ok: true,
+        results: jobs.map((job) => answer(job.id, { categories: ["gear", "projector"] })),
+      }),
+    });
+    await h.runner.describe(["reel.md"], h.writer, { depth: "specific", selected: true });
+    expect(h.written[0][1].categories).toEqual(["gear", "shopping", "projector"]);
+  });
+
+  it("puts a new specific term up for review on a selected clipping", async () => {
+    const h = harness({
+      filed: [rec("reel.md", ["gear", "shopping"])],
+      run: async (jobs) => ({
+        ok: true,
+        results: jobs.map((job) =>
+          answer(job.id, { categories: ["gear"], proposals: [{ term: "projector", definition: "Projectors." }] })
+        ),
+      }),
+    });
+    await h.runner.describe(["reel.md"], h.writer, { depth: "specific", selected: true });
+    expect(h.written[0][1]).toEqual({ caption: "Caption 0.", media_text: "" });
+    expect(h.runner.context([]).pending).toEqual([{ term: "projector", definition: "Projectors.", count: 1 }]);
+  });
+
+  it("retries failed clippings at the depth they were asked for", async () => {
+    let calls = 0;
+    const h = harness({
+      paths: ["a.md"],
+      run: async (jobs) => {
+        calls++;
+        // A failed batch of one is retried once on its own before it counts as failed.
+        return calls <= 2 ? { ok: false, failure: "error", message: "x" } : allGood(jobs);
+      },
+    });
+    await h.runner.describe(["a.md"], h.writer, { depth: "broad" });
+    await h.runner.retryFailed(h.writer);
+    expect(h.events.filter((e) => e.startsWith("depth:"))).toEqual(["depth:broad", "depth:broad", "depth:broad"]);
   });
 });

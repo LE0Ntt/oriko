@@ -190,3 +190,28 @@ describe("spawnOptions", () => {
     });
   });
 });
+
+describe("depth", () => {
+  const lastText = (line: string): string => {
+    const content = parse(line).message.content;
+    return content[content.length - 1].text ?? "";
+  };
+
+  it("asks for one or two general labels at Broad", () => {
+    expect(lastText(batchMessage([job()], ["design"], "broad"))).toContain(
+      "1 or 2 of the most general existing categories"
+    );
+  });
+
+  it("asks for the thing itself at Specific, never brands", () => {
+    const text = lastText(batchMessage([job()], ["design"], "specific"));
+    expect(text).toContain("up to 6 terms");
+    expect(text).toContain("never brands or model names");
+  });
+
+  it("keeps today's instructions at Standard, the default", () => {
+    const standard = lastText(batchMessage([job()], ["design"], "standard"));
+    expect(lastText(batchMessage([job()], ["design"]))).toBe(standard);
+    expect(standard).toContain("1 to 4 terms");
+  });
+});

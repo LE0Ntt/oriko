@@ -435,11 +435,13 @@ describe("facetValueCommands", () => {
   });
 });
 
+const paths = (n: number): string[] => Array.from({ length: n }, (_, i) => `c${i}.md`);
+
 const describing = (over: Partial<DescribeContext> = {}): DescribeContext => ({
   running: false,
   done: 0,
   total: 0,
-  uncategorized: 0,
+  uncategorized: [],
   failed: 0,
   pending: [],
   accepted: new Set(),
@@ -453,28 +455,48 @@ describe("describe commands", () => {
 
   it("offers the uncategorized run with its count, and hides it at zero", () => {
     expect(
-      find(context({ describe: describing({ uncategorized: 180 }) }), "describe:uncategorized")?.detail
+      find(context({ describe: describing({ uncategorized: paths(180) }) }), "describe:uncategorized")?.detail
     ).toBe("180");
     expect(find(context({ describe: describing() }), "describe:uncategorized")).toBeUndefined();
   });
 
-  it("describes a selection", () => {
-    let ran: string[] = [];
+  it("asks for a depth before describing a selection, showing what will be described", () => {
+    let ran: [string[], string] | null = null;
     const ctx = context({
       selection: ["a.md", "b.md"],
       describe: describing(),
-      actions: { ...actions, describeSelected: (ids: string[]) => (ran = ids) },
+      actions: { ...actions, describeSelected: (ids: string[], depth: string) => (ran = [ids, depth]) },
     });
     const row = find(ctx, "describe:selected");
     expect(row?.label).toBe("Describe selected (2)");
-    row?.run?.();
-    expect(ran).toEqual(["a.md", "b.md"]);
+    expect(row?.stage?.subject).toEqual(["a.md", "b.md"]);
+    const rows = row?.stage?.items() ?? [];
+    expect(rows.map((r) => r.id)).toEqual([
+      "describe:depth:broad",
+      "describe:depth:standard",
+      "describe:depth:specific",
+    ]);
+    expect(rows.map((r) => r.label)).toEqual(["Broad", "Standard", "Specific"]);
+    rows[2].run?.();
+    expect(ran).toEqual([["a.md", "b.md"], "specific"]);
+  });
+
+  it("shows the uncategorized clippings as the subject of the bulk run", () => {
+    let depth = "";
+    const ctx = context({
+      describe: describing({ uncategorized: ["x.md", "y.md"] }),
+      actions: { ...actions, describeUncategorized: (d: string) => (depth = d) },
+    });
+    const stage = find(ctx, "describe:uncategorized")?.stage;
+    expect(stage?.subject).toEqual(["x.md", "y.md"]);
+    stage?.items()[0].run?.();
+    expect(depth).toBe("broad");
   });
 
   it("shows only Stop while a run is going", () => {
     const ctx = context({
       selection: ["a.md"],
-      describe: describing({ running: true, done: 23, total: 180, uncategorized: 157 }),
+      describe: describing({ running: true, done: 23, total: 180, uncategorized: paths(157) }),
     });
     expect(find(ctx, "describe:stop")?.detail).toBe("23 of 180");
     expect(find(ctx, "describe:uncategorized")).toBeUndefined();

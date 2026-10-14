@@ -1,3 +1,4 @@
+import type { Depth } from "./claude-engine";
 import { isEmptyValue, valueLabel } from "./filter";
 import type { FacetDef, FacetValue, FilterState } from "./filter";
 import type { FolderSpace } from "./folders";
@@ -27,6 +28,11 @@ export interface PaletteStage {
    * state its own last click produced instead of the state it opened in.
    */
   items: () => PaletteCommand[];
+  /**
+   * The clippings this stage acts on, shown above its rows so the choice is
+   * made looking at them. Display only: nothing in it can be picked.
+   */
+  subject?: string[];
 }
 
 export interface PaletteCommand {
@@ -69,8 +75,8 @@ export interface DescribeContext {
   /** Clippings finished in the current run, and how many it has. */
   done: number;
   total: number;
-  /** Clippings with no categories and no caption. */
-  uncategorized: number;
+  /** Clippings with no categories and no caption, which the bulk run picks up. */
+  uncategorized: string[];
   /** Clippings the last run could not describe. */
   failed: number;
   /** Suggested categories waiting for review. */
@@ -102,8 +108,8 @@ export interface PaletteActions {
   archiveAll(): void;
   selectAll(): void;
   resetZoom(): void;
-  describeUncategorized(): void;
-  describeSelected(ids: string[]): void;
+  describeUncategorized(depth: Depth): void;
+  describeSelected(ids: string[], depth: Depth): void;
   stopDescribing(): void;
   retryDescribeFailed(): void;
   toggleSuggestion(term: string): void;
@@ -529,6 +535,31 @@ function captureCommands(context: PaletteContext): PaletteCommand[] {
 /** In section order, which is the order the palette shows them in. */
 const DESCRIBE_WORDS = "claude ai tag caption categorize label text ocr";
 
+const DEPTHS: Array<{ depth: Depth; label: string; icon: string; detail: string }> = [
+  { depth: "broad", label: "Broad", icon: "signal-low", detail: "1–2 general labels" },
+  { depth: "standard", label: "Standard", icon: "signal-medium", detail: "up to 4 labels" },
+  { depth: "specific", label: "Specific", icon: "signal-high", detail: "up to 6, names the thing itself" },
+];
+
+/** The depth choice a describe row opens, over the clippings it will describe. */
+function depthStage(title: string, subject: string[], run: (depth: Depth) => void): PaletteStage {
+  return {
+    title,
+    placeholder: "Pick a depth…",
+    subject,
+    items: () =>
+      DEPTHS.map((d) => ({
+        id: `describe:depth:${d.depth}`,
+        label: d.label,
+        icon: d.icon,
+        section: "Actions",
+        detail: d.detail,
+        keywords: `${d.depth} labels detail deep`,
+        run: () => run(d.depth),
+      })),
+  };
+}
+
 function reviewRows(describe: DescribeContext, actions: PaletteActions): PaletteCommand[] {
   const rows: PaletteCommand[] = describe.pending.map((p) => ({
     id: `describe:term:${p.term}`,
@@ -571,15 +602,17 @@ function describeCommands(context: PaletteContext): PaletteCommand[] {
       run: () => actions.stopDescribing(),
     });
   } else {
-    if (describe.uncategorized > 0) {
+    if (describe.uncategorized.length > 0) {
       items.push({
         id: "describe:uncategorized",
         label: "Describe uncategorized clippings",
         icon: "sparkles",
         section: "Actions",
-        detail: String(describe.uncategorized),
+        detail: String(describe.uncategorized.length),
         keywords: DESCRIBE_WORDS,
-        run: () => actions.describeUncategorized(),
+        stage: depthStage("Describe uncategorized", describe.uncategorized, (depth) =>
+          actions.describeUncategorized(depth)
+        ),
       });
     }
     if (selection.length > 0) {
@@ -589,7 +622,7 @@ function describeCommands(context: PaletteContext): PaletteCommand[] {
         icon: "sparkles",
         section: "Actions",
         keywords: DESCRIBE_WORDS,
-        run: () => actions.describeSelected(selection),
+        stage: depthStage("Describe selected", selection, (depth) => actions.describeSelected(selection, depth)),
       });
     }
     if (describe.failed > 0) {

@@ -1,9 +1,10 @@
-import type { DescribeJob, RawResult, RunOutcome } from "./claude-engine";
+import type { DescribeJob, Depth, RawResult, RunOutcome } from "./claude-engine";
 import type { DescribeContext } from "./commands";
 import {
   BATCH_SIZE,
   BATCH_TIMEOUT_MS,
   CONCURRENCY,
+  DEPTH_CAPS,
   EMPTY_PENDING,
   SINGLE_TIMEOUT_MS,
   addPending,
@@ -31,7 +32,7 @@ import type { ClippingRecord } from "./scan";
  */
 
 export interface DescribeEngine {
-  run(jobs: DescribeJob[], vocabulary: string[], timeoutMs: number): Promise<RunOutcome>;
+  run(jobs: DescribeJob[], vocabulary: string[], timeoutMs: number, depth: Depth): Promise<RunOutcome>;
   /** Ends every running call. Their runs resolve as errors. */
   cancelAll(): void;
 }
@@ -81,6 +82,16 @@ export const HALTS: Record<Halt, string> = {
   "not-found": "Oriko: Claude Code was not found. Check Settings → Oriko → Claude Code path.",
 };
 
+export interface RunRequest {
+  /** How deep the labels go. Standard when absent. */
+  depth?: Depth;
+  /**
+   * The user picked these clippings: labels are added to ones that already
+   * have some, and they can get suggestions. The bulk run leaves this off.
+   */
+  selected?: boolean;
+}
+
 interface Written {
   path: string;
   before: FrontmatterWrite;
@@ -116,6 +127,8 @@ export class DescribeRunner {
   private suggested = new Set<string>();
   private pending: PendingStore = EMPTY_PENDING;
   private accepted = new Set<string>();
+  /** The last run's request, so a retry asks for the same depth. */
+  private request: Required<RunRequest> = { depth: "standard", selected: false };
 
   constructor(
     private deps: RunnerDeps,
@@ -126,7 +139,7 @@ export class DescribeRunner {
     this.pending = store;
   }
 
-  context(uncategorized: number): DescribeContext {
+  context(uncategorized: string[]): DescribeContext {
     return {
       running: this.running,
       done: this.done,
@@ -142,8 +155,9 @@ export class DescribeRunner {
     };
   }
 
-  async describe(paths: string[], writer: DescribeWriter): Promise<void> {
+  async describe(paths: string[], writer: DescribeWriter, request: RunRequest = {}): Promise<void> {
     if (this.running || paths.length === 0) return;
+    this.request = { depth: request.depth ?? "standard", selected: request.selected ?? false };
     this.running = true;
     this.stopped = false;
     this.halted = null;
@@ -180,7 +194,7 @@ export class DescribeRunner {
   }
 
   retryFailed(writer: DescribeWriter): Promise<void> {
-    return this.describe([...this.failed], writer);
+    return this.describe([...this.failed], writer, this.request);
   }
 
   stop(): void {
@@ -274,11 +288,12 @@ export class DescribeRunner {
    * Claude Code. Each of those would fail every clipping that follows.
    */
   private async runJobs(jobs: DescribeJob[], vocabulary: string[], timeoutMs: number): Promise<RunOutcome> {
-    let outcome = await this.deps.engine.run(jobs, vocabulary, timeoutMs);
+    const depth = this.request.depth;
+    let outcome = await this.deps.engine.run(jobs, vocabulary, timeoutMs, depth);
     if (!outcome.ok && outcome.failure === "rate-limit" && !this.stopped) {
       await this.deps.wait(this.options.rateLimitWaitMs);
       if (this.stopped) return outcome;
-      outcome = await this.deps.engine.run(jobs, vocabulary, timeoutMs);
+      outcome = await this.deps.engine.run(jobs, vocabulary, timeoutMs, depth);
       if (!outcome.ok && outcome.failure === "rate-limit") this.halt("rate-limit");
     }
     if (
@@ -360,12 +375,14 @@ export class DescribeRunner {
       this.tick(path);
       return;
     }
-    const described = validate(raw, path, vocabulary);
-    const after = describedValues(record.categories, described);
+    const { depth, selected } = this.request;
+    const cap = DEPTH_CAPS[depth];
+    const described = validate(raw, path, vocabulary, depth);
+    const after = describedValues(record.categories, described, { add: selected, cap });
     const before = snapshot(record, after);
     if (await writer.write(path, after)) {
       written.push({ path, before, after });
-      const offered = suggestionsFor(record.categories, described);
+      const offered = suggestionsFor(record.categories, described, { selected, cap });
       for (const proposal of offered.proposals) this.suggested.add(proposal.term);
       this.pending = addPending(this.pending, offered);
       this.tick(path);

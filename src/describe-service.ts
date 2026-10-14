@@ -5,7 +5,7 @@ import type { DescribeContext } from "./core/commands";
 import { bodyExcerpt, limiter, parsePending } from "./core/describe";
 import type { PendingStore } from "./core/describe";
 import { DescribeRunner } from "./core/describe-run";
-import type { DescribeEngine, DescribeWriter } from "./core/describe-run";
+import type { DescribeEngine, DescribeWriter, RunRequest } from "./core/describe-run";
 import { domainOf, splitFrontmatter } from "./core/scan";
 import type { ClippingRecord } from "./core/scan";
 import { mediaFor } from "./describe-media";
@@ -95,12 +95,12 @@ export class DescribeService {
     };
   }
 
-  context(uncategorized: number): DescribeContext {
+  context(uncategorized: string[]): DescribeContext {
     return this.runner.context(uncategorized);
   }
 
-  describe(paths: string[], writer: DescribeWriter): Promise<void> {
-    return this.runner.describe(paths, writer);
+  describe(paths: string[], writer: DescribeWriter, request: RunRequest = {}): Promise<void> {
+    return this.runner.describe(paths, writer, request);
   }
 
   retryFailed(writer: DescribeWriter): Promise<void> {

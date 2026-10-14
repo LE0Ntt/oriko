@@ -1,5 +1,5 @@
 import { batchMessage, childEnv, claudeArgs, parseRun, spawnOptions, textCollector } from "./core/claude-engine";
-import type { DescribeJob, RunOutcome } from "./core/claude-engine";
+import type { DescribeJob, Depth, RunOutcome } from "./core/claude-engine";
 import type { DescribeEngine } from "./core/describe-run";
 import { nodeRequire } from "./core/system";
 import { claudePath, forgetClaudePath, hostEnv } from "./convert";
@@ -45,7 +45,7 @@ export function claudeAvailable(): boolean {
 export class ClaudeCodeEngine implements DescribeEngine {
   private children = new Set<ChildProcess>();
 
-  run(jobs: DescribeJob[], vocabulary: string[], timeoutMs: number): Promise<RunOutcome> {
+  run(jobs: DescribeJob[], vocabulary: string[], timeoutMs: number, depth: Depth): Promise<RunOutcome> {
     const command = claudePath();
     const cp = nodeRequire("child_process") as SpawnModule | null;
     const os = nodeRequire("os") as OsModule | null;
@@ -100,7 +100,7 @@ export class ClaudeCodeEngine implements DescribeEngine {
       // A process that dies before reading stdin closes the pipe; the close
       // handler above reports it, so the write error itself is not news.
       child.stdin.on("error", () => undefined);
-      child.stdin.write(batchMessage(jobs, vocabulary));
+      child.stdin.write(batchMessage(jobs, vocabulary, depth));
       child.stdin.end();
     });
   }
