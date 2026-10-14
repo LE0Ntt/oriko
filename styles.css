@@ -2085,6 +2085,10 @@
   object-fit: contain;
 }
 
+.pg-clip-panel-media .is-hidden {
+  display: none;
+}
+
 .pg-clip-panel-empty {
   padding: 48px 16px;
   color: var(--pg-surface-dim);

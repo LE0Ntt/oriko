@@ -332,9 +332,11 @@ describe("media sizes", () => {
     expect(fitWithin(800, 600)).toEqual({ width: 800, height: 600 });
   });
 
-  it("gives each video frame half the grid's width", () => {
+  it("fits each video frame inside half the grid's width, both ways", () => {
     expect(gridCell(1920, 1080)).toEqual({ width: 512, height: 288 });
-    expect(gridCell(1080, 1920)).toEqual({ width: 512, height: 910 });
+    // A portrait video keeps its shape inside the box; it once made a 1024 x 1820 grid.
+    expect(gridCell(1080, 1920)).toEqual({ width: 288, height: 512 });
+    expect(gridCell(1000, 1000)).toEqual({ width: 512, height: 512 });
   });
 });
 

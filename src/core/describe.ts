@@ -391,9 +391,11 @@ export function fitWithin(
   return { width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)) };
 }
 
-/** One quadrant of a video's 2x2 frame grid: half the grid's width, the video's own shape. */
+/**
+ * One quadrant of a video's 2x2 frame grid: the video's own shape, fitted
+ * inside a square half the grid's width. A portrait video once made a
+ * 1024 x 1820 grid, and encoding it held the main thread for over 100 ms.
+ */
 export function gridCell(videoWidth: number, videoHeight: number): { width: number; height: number } {
-  const width = MEDIA_EDGE / 2;
-  const height = videoWidth > 0 && videoHeight > 0 ? Math.round((width * videoHeight) / videoWidth) : width;
-  return { width, height };
+  return fitWithin(videoWidth, videoHeight, MEDIA_EDGE / 2);
 }

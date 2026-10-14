@@ -61,7 +61,7 @@ async function jpegFrom(bytes: BlobPart): Promise<string> {
   try {
     const size = fitWithin(bitmap.width, bitmap.height);
     const canvas = new OffscreenCanvas(size.width, size.height);
-    const context = canvas.getContext("2d");
+    const context = canvas.getContext("2d", { willReadFrequently: true });
     if (!context) throw new Error("no 2d context");
     context.drawImage(bitmap, 0, 0, size.width, size.height);
     return await encode(canvas);
@@ -113,7 +113,9 @@ async function videoGrid(app: App, path: string): Promise<string | null> {
 
     const cell = gridCell(video.videoWidth, video.videoHeight);
     const canvas = new OffscreenCanvas(cell.width * 2, cell.height * 2);
-    const context = canvas.getContext("2d");
+    // CPU-backed, so each frame is read back as it is drawn, between the
+    // seeks, and the encode at the end has no GPU readback to wait on.
+    const context = canvas.getContext("2d", { willReadFrequently: true });
     if (!context) return null;
     for (const [index, fraction] of FRAME_FRACTIONS.entries()) {
       const seeked = once(video, "seeked");

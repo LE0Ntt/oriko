@@ -74,7 +74,7 @@ export class ClipPanel {
     if (!this.el.hasClass("is-visible")) return;
     this.el.removeClass("is-visible");
     this.stopMedia();
-    this.mediaEl.empty();
+    this.image?.removeAttribute("src");
     this.shownPath = null;
   }
 
@@ -83,35 +83,59 @@ export class ClipPanel {
     this.el.remove();
   }
 
+  /**
+   * One video element and one image element for the panel's whole life,
+   * with only their sources swapped. Making a new video for every clip had
+   * the compositor rebuild its layers on each Tab, about 25 ms a step.
+   */
+  private video: HTMLVideoElement | null = null;
+  private image: HTMLImageElement | null = null;
+  private empty: HTMLElement | null = null;
+
   private paintMedia(path: string): void {
-    this.stopMedia();
-    this.mediaEl.empty();
     const media = this.deps.media(path);
     if (!media) {
-      this.mediaEl.createDiv({ cls: "pg-clip-panel-empty", text: "No media for this clipping" });
+      this.stopMedia();
+      this.image?.addClass("is-hidden");
+      this.empty ??= this.mediaEl.createDiv({ cls: "pg-clip-panel-empty", text: "No media for this clipping" });
+      this.empty.removeClass("is-hidden");
       return;
     }
+    this.empty?.addClass("is-hidden");
+
     if (media.kind === "video") {
-      const video = this.mediaEl.createEl("video");
-      video.muted = true;
-      video.loop = true;
-      video.autoplay = true;
-      video.playsInline = true;
+      this.image?.addClass("is-hidden");
+      const video = (this.video ??= this.makeVideo());
+      video.removeClass("is-hidden");
       if (media.poster) video.poster = media.poster;
+      else video.removeAttribute("poster");
       video.src = media.src;
       void video.play().catch(() => undefined);
     } else {
-      const image = this.mediaEl.createEl("img");
+      this.stopMedia();
+      const image = (this.image ??= this.mediaEl.createEl("img"));
       image.decoding = "async";
+      image.removeClass("is-hidden");
       image.src = media.src;
     }
   }
 
+  private makeVideo(): HTMLVideoElement {
+    const video = this.mediaEl.createEl("video");
+    video.muted = true;
+    video.loop = true;
+    video.autoplay = true;
+    video.playsInline = true;
+    return video;
+  }
+
+  /** Stops the video and lets go of its decoder; the element stays for the next clip. */
   private stopMedia(): void {
-    const video = this.mediaEl.querySelector("video");
+    const video = this.video;
     if (!video) return;
     video.pause();
     video.removeAttribute("src");
     video.load();
+    video.addClass("is-hidden");
   }
 }
