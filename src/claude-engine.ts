@@ -1,19 +1,14 @@
 import { batchMessage, childEnv, claudeArgs, parseRun, spawnOptions, textCollector } from "./core/claude-engine";
 import type { DescribeJob, RunOutcome } from "./core/claude-engine";
+import type { DescribeEngine } from "./core/describe-run";
 import { nodeRequire } from "./core/system";
-import { claudePath, hostEnv } from "./convert";
+import { claudePath, forgetClaudePath, hostEnv } from "./convert";
 
 /**
  * Runs Claude Code for Describe. The thin half: what to send and how to read
  * the answer are in core/claude-engine.ts. One process per batch; the batch
  * goes in on stdin and the answer comes back as stream-json on stdout.
  */
-
-export interface Engine {
-  run(jobs: DescribeJob[], vocabulary: string[], timeoutMs: number): Promise<RunOutcome>;
-  /** Ends every running process. Their runs resolve as errors. */
-  cancelAll(): void;
-}
 
 interface Readable {
   on(event: "data", listener: (chunk: unknown) => void): void;
@@ -47,7 +42,7 @@ export function claudeAvailable(): boolean {
   return nodeRequire("child_process") !== null && claudePath() !== null;
 }
 
-export class ClaudeCodeEngine implements Engine {
+export class ClaudeCodeEngine implements DescribeEngine {
   private children = new Set<ChildProcess>();
 
   run(jobs: DescribeJob[], vocabulary: string[], timeoutMs: number): Promise<RunOutcome> {
@@ -56,7 +51,7 @@ export class ClaudeCodeEngine implements Engine {
     const os = nodeRequire("os") as OsModule | null;
     const path = nodeRequire("path") as PathModule | null;
     if (!command || !cp || !os || !path) {
-      return Promise.resolve({ ok: false, failure: "error", message: "Claude Code was not found" });
+      return Promise.resolve({ ok: false, failure: "not-found", message: "Claude Code was not found" });
     }
 
     return new Promise<RunOutcome>((resolve) => {
@@ -92,7 +87,15 @@ export class ClaudeCodeEngine implements Engine {
 
       this.children.add(child);
       child.stdout.on("data", (chunk) => stdout.push(chunk));
-      child.on("error", (error) => finish({ ok: false, failure: "error", message: String(error) }));
+      child.on("error", (error) => {
+        // ENOENT: the remembered path no longer leads to Claude Code.
+        if ((error as { code?: unknown } | null)?.code === "ENOENT") {
+          forgetClaudePath();
+          finish({ ok: false, failure: "not-found", message: String(error) });
+        } else {
+          finish({ ok: false, failure: "error", message: String(error) });
+        }
+      });
       child.on("close", () => finish(parseRun(stdout.text())));
       // A process that dies before reading stdin closes the pipe; the close
       // handler above reports it, so the write error itself is not news.

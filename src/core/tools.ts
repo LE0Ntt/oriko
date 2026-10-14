@@ -17,6 +17,28 @@ export interface ToolEnv {
   windows: boolean;
 }
 
+/**
+ * A lookup remembered until reset, for discovery that touches the disk and is
+ * asked far more often than its answer changes (the palette asks on every
+ * keystroke; the answer changes when a path setting does).
+ */
+export function cached<T>(lookup: () => T): { get(): T; reset(): void } {
+  let known = false;
+  let value: T;
+  return {
+    get(): T {
+      if (!known) {
+        value = lookup();
+        known = true;
+      }
+      return value;
+    },
+    reset(): void {
+      known = false;
+    },
+  };
+}
+
 export function executableCandidates(
   name: string,
   env: ToolEnv,

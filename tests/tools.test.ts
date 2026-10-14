@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { executableCandidates } from "../src/core/tools";
+import { cached, executableCandidates } from "../src/core/tools";
 
 describe("executableCandidates", () => {
   it("walks PATH directories in order, then the fixed fallbacks", () => {
@@ -51,5 +51,28 @@ describe("executableCandidates", () => {
       []
     );
     expect(candidates).toEqual(["/usr/bin/yt-dlp"]);
+  });
+});
+
+describe("cached", () => {
+  it("looks up once until reset", () => {
+    let calls = 0;
+    const lookup = cached(() => ++calls);
+    expect(lookup.get()).toBe(1);
+    expect(lookup.get()).toBe(1);
+    lookup.reset();
+    expect(lookup.get()).toBe(2);
+    expect(calls).toBe(2);
+  });
+
+  it("remembers a null answer too", () => {
+    let calls = 0;
+    const lookup = cached((): string | null => {
+      calls++;
+      return null;
+    });
+    lookup.get();
+    lookup.get();
+    expect(calls).toBe(1);
   });
 });

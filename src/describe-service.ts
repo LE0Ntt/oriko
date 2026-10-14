@@ -1,92 +1,51 @@
 import { App, Notice, TFile, normalizePath } from "obsidian";
 import type { MediaCache } from "./core/cache";
-import type { DescribeJob, RawResult, RunOutcome } from "./core/claude-engine";
+import type { DescribeJob } from "./core/claude-engine";
 import type { DescribeContext } from "./core/commands";
-import {
-  BATCH_TIMEOUT_MS,
-  CONCURRENCY,
-  EMPTY_PENDING,
-  SINGLE_TIMEOUT_MS,
-  addPending,
-  batches,
-  bodyExcerpt,
-  describedValues,
-  inPool,
-  limiter,
-  matchResults,
-  parsePending,
-  resolveReview,
-  snapshot,
-  suggestionsFor,
-  validate,
-  wallVocabulary,
-} from "./core/describe";
+import { bodyExcerpt, limiter, parsePending } from "./core/describe";
 import type { PendingStore } from "./core/describe";
-import type { FrontmatterWrite } from "./core/editable";
-import type { HistoryEntry } from "./core/history";
+import { DescribeRunner } from "./core/describe-run";
+import type { DescribeEngine, DescribeWriter } from "./core/describe-run";
 import { domainOf, splitFrontmatter } from "./core/scan";
 import type { ClippingRecord } from "./core/scan";
-import type { Engine } from "./claude-engine";
 import { mediaFor } from "./describe-media";
 
+export type { DescribeWriter } from "./core/describe-run";
+
 /**
- * Runs Describe: picks up the clippings, prepares their media, sends them in
- * batches, writes each answer as it arrives, and keeps the suggested
- * categories until they are reviewed.
- *
- * One per plugin. The view that starts a run or applies a review hands in its
- * writer, so every write goes through that view's one writer and lands in its
- * undo history.
+ * Describe's Obsidian half: the media and note text for each job, the
+ * progress notice, and describe.json, where waiting suggestions are kept.
+ * Every decision about a run is in core/describe-run.ts.
  */
 
 const STORE_FILE = "describe.json";
-const RATE_LIMIT_WAIT_MS = 20000;
-/** Media prepared at once across the whole run: a video is read whole into memory. */
+/** Media prepared at once across a whole run: a video is read whole into memory. */
 const MEDIA_LANES = 3;
 
-export interface DescribeWriter {
-  write(path: string, values: FrontmatterWrite): Promise<boolean>;
-  record(entry: HistoryEntry): void;
-}
-
-interface Written {
-  path: string;
-  before: FrontmatterWrite;
-  after: FrontmatterWrite;
-}
-
-const HALTS = {
-  "not-logged-in":
-    "Oriko: Claude Code is not logged in. Run claude in a terminal, sign in with /login, then describe again.",
-  "usage-limit": "Oriko: your Claude usage limit is reached. Describing stopped; what was described is kept.",
-} as const;
-
-function plural(count: number, one: string, many: string): string {
-  return `${count} ${count === 1 ? one : many}`;
-}
-
 export class DescribeService {
-  private running = false;
-  private stopped = false;
-  private halted: string | null = null;
-  private done = 0;
-  private total = 0;
-  private failed: string[] = [];
-  private pending: PendingStore = EMPTY_PENDING;
-  private accepted = new Set<string>();
+  private runner: DescribeRunner;
   private notice: Notice | null = null;
-  /** Paths this run has counted, done or failed, so a lane that throws fails only the rest. */
-  private handled = new Set<string>();
-  private prepare = limiter(MEDIA_LANES);
+  private prepareMedia = limiter(MEDIA_LANES);
 
   constructor(
     private app: App,
-    private engine: Engine,
+    engine: DescribeEngine,
     private cacheDir: string,
-    private records: () => ClippingRecord[],
+    records: () => ClippingRecord[],
     private record: (path: string) => ClippingRecord | undefined,
     private cache: () => MediaCache
-  ) {}
+  ) {
+    this.runner = new DescribeRunner({
+      engine,
+      prepare: (path, id) => this.jobFor(path, id),
+      record,
+      records,
+      save: (store) => this.save(store),
+      wait: (ms) => new Promise((resolve) => window.setTimeout(resolve, ms)),
+      progress: (text) => this.progress(text),
+      notify: (text) => new Notice(text),
+    });
+  }
 
   private storePath(): string {
     return normalizePath(`${this.cacheDir}/${STORE_FILE}`);
@@ -96,147 +55,25 @@ export class DescribeService {
     const path = this.storePath();
     if (!(await this.app.vault.adapter.exists(path))) return;
     try {
-      this.pending = parsePending(JSON.parse(await this.app.vault.adapter.read(path)));
+      this.runner.setPending(parsePending(JSON.parse(await this.app.vault.adapter.read(path))));
     } catch {
-      this.pending = EMPTY_PENDING;
+      // A damaged file is a review lost, never a plugin that will not load.
     }
   }
 
-  private async save(): Promise<void> {
-    await this.app.vault.adapter.write(this.storePath(), JSON.stringify(this.pending));
+  private async save(store: PendingStore): Promise<void> {
+    await this.app.vault.adapter.write(this.storePath(), JSON.stringify(store));
   }
 
-  context(uncategorized: number): DescribeContext {
-    return {
-      running: this.running,
-      done: this.done,
-      total: this.total,
-      uncategorized,
-      failed: this.failed.length,
-      pending: this.pending.terms.map((t) => ({
-        term: t.term,
-        definition: t.definition,
-        count: t.paths.length,
-      })),
-      accepted: this.accepted,
-    };
-  }
-
-  async describe(paths: string[], writer: DescribeWriter): Promise<void> {
-    if (this.running || paths.length === 0) return;
-    this.running = true;
-    this.stopped = false;
-    this.halted = null;
-    this.done = 0;
-    this.total = paths.length;
-    this.failed = [];
-    this.handled = new Set();
-    this.prepare = limiter(MEDIA_LANES);
-    const vocabulary = wallVocabulary(this.records());
-    const written: Written[] = [];
-    this.notice = new Notice(this.progress(), 0);
-
-    try {
-      await inPool(
-        batches(paths),
-        CONCURRENCY,
-        (group) => this.runGroup(group, vocabulary, writer, written),
-        // A lane that throws fails only what it had not counted yet; the
-        // other lanes carry on, and the run still ends with its undo entry.
-        (group) => {
-          for (const path of group) if (!this.handled.has(path)) this.fail(path);
-        }
-      );
-    } finally {
-      this.engine.cancelAll();
-      this.running = false;
+  private progress(text: string | null): void {
+    if (text === null) {
       this.notice?.hide();
       this.notice = null;
-      if (written.length > 0) {
-        writer.record(this.entry(`Describe ${plural(written.length, "clipping", "clippings")}`, written, writer));
-      }
-      await this.save();
-      new Notice(this.halted ?? this.summary(written.length));
+    } else if (this.notice) {
+      this.notice.setMessage(text);
+    } else {
+      this.notice = new Notice(text, 0);
     }
-  }
-
-  retryFailed(writer: DescribeWriter): Promise<void> {
-    return this.describe([...this.failed], writer);
-  }
-
-  stop(): void {
-    if (!this.running) return;
-    this.stopped = true;
-    this.engine.cancelAll();
-  }
-
-  toggle(term: string): void {
-    if (this.accepted.has(term)) this.accepted.delete(term);
-    else this.accepted.add(term);
-  }
-
-  async apply(writer: DescribeWriter): Promise<void> {
-    const writes = resolveReview(this.pending, this.accepted, (path) => this.record(path)?.categories ?? null);
-    const kept = this.pending.terms.filter((t) => this.accepted.has(t.term)).length;
-    const written: Written[] = [];
-    for (const write of writes) {
-      const record = this.record(write.path);
-      if (!record) continue;
-      const after: FrontmatterWrite = { categories: write.categories };
-      const before = snapshot(record, after);
-      if (await writer.write(write.path, after)) written.push({ path: write.path, before, after });
-    }
-    this.pending = EMPTY_PENDING;
-    this.accepted = new Set();
-    await this.save();
-    if (written.length > 0) {
-      writer.record(
-        this.entry(`Apply ${plural(kept, "suggested category", "suggested categories")}`, written, writer)
-      );
-    }
-    new Notice(`Oriko: categories updated on ${plural(written.length, "clipping", "clippings")}`);
-  }
-
-  private progress(): string {
-    return `Oriko: describing ${this.done} of ${this.total}…`;
-  }
-
-  private summary(described: number): string {
-    const parts = [`${described} described`];
-    if (this.failed.length > 0) parts.push(`${this.failed.length} failed`);
-    if (this.pending.terms.length > 0) {
-      parts.push(`${plural(this.pending.terms.length, "category", "categories")} to review`);
-    }
-    return `Oriko: ${parts.join(", ")}${this.stopped && !this.halted ? " (stopped)" : ""}`;
-  }
-
-  private entry(label: string, written: Written[], writer: DescribeWriter): HistoryEntry {
-    return {
-      label,
-      undo: async () => {
-        for (const w of written) await writer.write(w.path, w.before);
-      },
-      redo: async () => {
-        for (const w of written) await writer.write(w.path, w.after);
-      },
-    };
-  }
-
-  private tick(path: string): void {
-    this.handled.add(path);
-    this.done++;
-    this.notice?.setMessage(this.progress());
-  }
-
-  private fail(path: string): void {
-    this.failed.push(path);
-    this.tick(path);
-  }
-
-  private halt(failure: "not-logged-in" | "usage-limit"): void {
-    this.halted = HALTS[failure];
-    this.stopped = true;
-    this.engine.cancelAll();
   }
 
   private async jobFor(path: string, id: number): Promise<DescribeJob | null> {
@@ -244,7 +81,7 @@ export class DescribeService {
     const file = this.app.vault.getAbstractFileByPath(normalizePath(path));
     if (!record || !(file instanceof TFile)) return null;
     const [image, text] = await Promise.all([
-      this.prepare(() => mediaFor(this.app, record, this.cache())).catch(() => null),
+      this.prepareMedia(() => mediaFor(this.app, record, this.cache())).catch(() => null),
       this.app.vault.cachedRead(file).catch(() => ""),
     ]);
     return {
@@ -258,86 +95,27 @@ export class DescribeService {
     };
   }
 
-  private async jobsFor(paths: string[]): Promise<DescribeJob[]> {
-    const jobs = await Promise.all(paths.map((path, id) => this.jobFor(path, id)));
-    return jobs.filter((job): job is DescribeJob => job !== null);
+  context(uncategorized: number): DescribeContext {
+    return this.runner.context(uncategorized);
   }
 
-  /** One engine run, waiting out a rate limit once and halting the whole run on login or usage limits. */
-  private async runJobs(jobs: DescribeJob[], vocabulary: string[], timeoutMs: number): Promise<RunOutcome> {
-    let outcome = await this.engine.run(jobs, vocabulary, timeoutMs);
-    if (!outcome.ok && outcome.failure === "rate-limit" && !this.stopped) {
-      await new Promise((resolve) => window.setTimeout(resolve, RATE_LIMIT_WAIT_MS));
-      if (!this.stopped) outcome = await this.engine.run(jobs, vocabulary, timeoutMs);
-    }
-    if (!outcome.ok && (outcome.failure === "not-logged-in" || outcome.failure === "usage-limit")) {
-      this.halt(outcome.failure);
-    }
-    return outcome;
+  describe(paths: string[], writer: DescribeWriter): Promise<void> {
+    return this.runner.describe(paths, writer);
   }
 
-  private async runGroup(
-    paths: string[],
-    vocabulary: string[],
-    writer: DescribeWriter,
-    written: Written[]
-  ): Promise<void> {
-    if (this.stopped) return;
-    const jobs = await this.jobsFor(paths);
-    // A clipping deleted since the run began has nothing to describe.
-    const found = new Set(jobs.map((job) => job.path));
-    for (const path of paths) if (!found.has(path)) this.tick(path);
-    if (jobs.length === 0 || this.stopped) return;
-
-    const outcome = await this.runJobs(jobs, vocabulary, jobs.length > 1 ? BATCH_TIMEOUT_MS : SINGLE_TIMEOUT_MS);
-    if (this.stopped) return;
-    if (!outcome.ok) {
-      await this.runSingly(jobs, vocabulary, writer, written);
-      return;
-    }
-    const { matched, missing } = matchResults(jobs, outcome.results);
-    for (const [job, raw] of matched) await this.accept(job.path, raw, vocabulary, writer, written);
-    await this.runSingly(missing, vocabulary, writer, written);
+  retryFailed(writer: DescribeWriter): Promise<void> {
+    return this.runner.retryFailed(writer);
   }
 
-  /** Retries jobs one per call, so one bad clipping cannot fail its batch. */
-  private async runSingly(
-    jobs: DescribeJob[],
-    vocabulary: string[],
-    writer: DescribeWriter,
-    written: Written[]
-  ): Promise<void> {
-    for (const job of jobs) {
-      if (this.stopped) return;
-      const outcome = await this.runJobs([{ ...job, id: 0 }], vocabulary, SINGLE_TIMEOUT_MS);
-      if (this.stopped) return;
-      const raw = outcome.ok ? outcome.results.find((r) => r.caption.trim()) : undefined;
-      if (raw) await this.accept(job.path, raw, vocabulary, writer, written);
-      else this.fail(job.path);
-    }
+  stop(): void {
+    this.runner.stop();
   }
 
-  private async accept(
-    path: string,
-    raw: RawResult,
-    vocabulary: string[],
-    writer: DescribeWriter,
-    written: Written[]
-  ): Promise<void> {
-    const record = this.record(path);
-    if (!record) {
-      this.tick(path);
-      return;
-    }
-    const described = validate(raw, path, vocabulary);
-    const after = describedValues(record.categories, described);
-    const before = snapshot(record, after);
-    if (await writer.write(path, after)) {
-      written.push({ path, before, after });
-      this.pending = addPending(this.pending, suggestionsFor(record.categories, described));
-      this.tick(path);
-    } else {
-      this.fail(path);
-    }
+  toggle(term: string): void {
+    this.runner.toggle(term);
+  }
+
+  apply(writer: DescribeWriter): Promise<void> {
+    return this.runner.apply(writer);
   }
 }

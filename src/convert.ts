@@ -1,7 +1,7 @@
 import { FileSystemAdapter, Platform, TFile, Vault, normalizePath } from "obsidian";
 import { ytdlpRecipeFor } from "./core/resolve";
 import { nodeRequire } from "./core/system";
-import { executableCandidates } from "./core/tools";
+import { cached, executableCandidates } from "./core/tools";
 import type { ToolEnv } from "./core/tools";
 
 /**
@@ -28,6 +28,7 @@ let toolOverrides = { ytdlp: "", ffmpeg: "", claude: "" };
 
 export function setToolOverrides(next: { ytdlp: string; ffmpeg: string; claude: string }): void {
   toolOverrides = next;
+  claudeLookup.reset();
 }
 
 interface ProcessLike {
@@ -215,10 +216,21 @@ export function ytdlpPath(): string | null {
  * sits in ~/.claude/local.
  */
 export function claudePath(): string | null {
+  return claudeLookup.get();
+}
+
+/** Forgets where Claude Code was, for when it has gone; the next ask looks again. */
+export function forgetClaudePath(): void {
+  claudeLookup.reset();
+}
+
+// Remembered between asks: the palette asks on every keystroke, and the
+// answer changes only with the path setting (which resets it) or an uninstall.
+const claudeLookup = cached((): string | null => {
   const home = hostProcess()?.env?.HOME;
   const fixed = [...fixedCandidates("claude"), ...(home ? [`${home}/.claude/local/claude`] : [])];
   return firstExisting(executableCandidates("claude", toolEnv(), fixed, toolOverrides.claude));
-}
+});
 
 /** The desktop session's environment and PATH separator, for starting a tool. */
 export function hostEnv(): { env: Record<string, string | undefined>; delimiter: string } {

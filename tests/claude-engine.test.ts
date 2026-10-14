@@ -130,6 +130,11 @@ describe("parseRun", () => {
     expect(parseRun(stdout)).toMatchObject({ ok: false, failure: "rate-limit" });
   });
 
+  it("reads a transient \"rate limit reached\" as something to wait out", () => {
+    const stdout = JSON.stringify({ type: "result", is_error: true, result: "API Error: rate limit reached" });
+    expect(parseRun(stdout)).toMatchObject({ ok: false, failure: "rate-limit" });
+  });
+
   it("skips lines that are not JSON", () => {
     const run = parseRun(`warning: something odd\n{not json\n${fixture("batch-result")}`);
     expect(run.ok).toBe(true);

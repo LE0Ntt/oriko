@@ -37,7 +37,7 @@ export interface RawResult {
   media_text: string;
 }
 
-export type EngineFailure = "not-logged-in" | "usage-limit" | "rate-limit" | "error";
+export type EngineFailure = "not-logged-in" | "usage-limit" | "rate-limit" | "not-found" | "error";
 
 export type RunOutcome =
   | { ok: true; results: RawResult[] }
@@ -218,10 +218,13 @@ export function parseRun(stdout: string): RunOutcome {
     if (authFailed || /not logged in|\/login/i.test(message)) {
       return { ok: false, failure: "not-logged-in", message };
     }
-    if (limited || /usage limit|limit reached/i.test(message)) {
+    // The rate_limit_event status is the authoritative usage-limit signal;
+    // message text only decides when there is none. "Rate limit reached" is a
+    // transient wait, never the subscription's limit.
+    if (limited || /usage limit/i.test(message)) {
       return { ok: false, failure: "usage-limit", message };
     }
-    if (/rate limit|429|overloaded/i.test(message)) {
+    if (/rate.?limit|429|overloaded/i.test(message)) {
       return { ok: false, failure: "rate-limit", message };
     }
     return { ok: false, failure: "error", message: message || "Claude Code gave no structured answer" };

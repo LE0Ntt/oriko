@@ -16,6 +16,7 @@ import {
   needsDescribing,
   parsePending,
   resolveReview,
+  retainPending,
   snapshot,
   suggestionsFor,
   validate,
@@ -157,6 +158,9 @@ describe("vocabulary", () => {
     expect(matchVocabulary("sketches", ["sketch"])).toBe("sketch");
     expect(matchVocabulary("food", ["ios"])).toBeNull();
     expect(matchVocabulary("", ["s"])).toBeNull();
+    expect(matchVocabulary("news", ["new"])).toBeNull();
+    expect(matchVocabulary("ios", ["io"])).toBeNull();
+    expect(matchVocabulary("icons", ["icon"])).toBe("icon");
   });
 });
 
@@ -260,6 +264,20 @@ describe("suggestions", () => {
     const d = described({ proposals: [{ term: "food", definition: "" }], fallback: "media" });
     expect(suggestionsFor([], d)).toBe(d);
     expect(suggestionsFor(["coffee"], d)).toEqual({ ...d, proposals: [], fallback: null });
+  });
+
+  it("keeps only the given clippings' suggestions for the next review", () => {
+    const store = {
+      terms: [
+        { term: "food", definition: "D", paths: ["a.md", "b.md"] },
+        { term: "golf", definition: "G", paths: ["c.md"] },
+      ],
+      fallbacks: { "a.md": "media", "b.md": "media", "c.md": "reference" },
+    };
+    expect(retainPending(store, ["b.md"])).toEqual({
+      terms: [{ term: "food", definition: "D", paths: ["b.md"] }],
+      fallbacks: { "b.md": "media" },
+    });
   });
 
   it("ignores a clipping with no suggestions", () => {

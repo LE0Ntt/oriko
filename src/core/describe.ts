@@ -124,11 +124,17 @@ export function kebab(term: string): string {
     .replace(/^-|-$/g, "");
 }
 
+/** Below this length a trailing s is too likely to be its own word: new and news, io and ios. */
+const PLURAL_STEM = 4;
+
 function sameTerm(a: string, b: string): boolean {
   const x = kebab(a);
   const y = kebab(b);
   if (!x || !y) return false;
-  return x === y || `${x}s` === y || `${y}s` === x || `${x}es` === y || `${y}es` === x;
+  if (x === y) return true;
+  const [short, long] = x.length <= y.length ? [x, y] : [y, x];
+  if (short.length < PLURAL_STEM) return false;
+  return long === `${short}s` || long === `${short}es`;
 }
 
 /** The wall's own spelling of a term, ignoring case, a plural ending, and spaces versus hyphens. */
@@ -283,6 +289,17 @@ export function parsePending(value: unknown): PendingStore {
       if (typeof term === "string") fallbacks[path] = term;
     }
   }
+  return { terms, fallbacks };
+}
+
+/** The store cut down to the given clippings, for writes that failed and should be reviewed again. */
+export function retainPending(store: PendingStore, paths: readonly string[]): PendingStore {
+  const keep = new Set(paths);
+  const terms = store.terms
+    .map((t) => ({ ...t, paths: t.paths.filter((p) => keep.has(p)) }))
+    .filter((t) => t.paths.length > 0);
+  const fallbacks: Record<string, string> = {};
+  for (const [path, term] of Object.entries(store.fallbacks)) if (keep.has(path)) fallbacks[path] = term;
   return { terms, fallbacks };
 }
 

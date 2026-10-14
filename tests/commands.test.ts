@@ -481,6 +481,13 @@ describe("describe commands", () => {
     expect(find(ctx, "describe:selected")).toBeUndefined();
   });
 
+  it("hides the review while a run is going", () => {
+    const ctx = context({
+      describe: describing({ running: true, pending: [{ term: "food", definition: "", count: 2 }] }),
+    });
+    expect(find(ctx, "describe:review")).toBeUndefined();
+  });
+
   it("offers a retry for failed clippings", () => {
     expect(find(context({ describe: describing({ failed: 4 }) }), "describe:retry")?.label).toBe(
       "Retry 4 failed"

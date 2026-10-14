@@ -604,7 +604,8 @@ function describeCommands(context: PaletteContext): PaletteCommand[] {
     }
   }
 
-  if (describe.pending.length > 0) {
+  // Not while a run is going: applying would race the run's own writes.
+  if (describe.pending.length > 0 && !describe.running) {
     items.push({
       id: "describe:review",
       label: `Review suggested categories (${describe.pending.length})`,
