@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildCommands, facetValueCommands } from "../src/core/commands";
-import type { DescribeContext, PaletteContext } from "../src/core/commands";
+import type { DescribeContext, PaletteContext, ReviewView } from "../src/core/commands";
 import { emptyFilter, facetDefs } from "../src/core/filter";
 
 const DEFS = facetDefs(["categories", "status"]);
@@ -35,6 +35,8 @@ const actions = {
   retryDescribeFailed: noop,
   toggleSuggestion: noop,
   applySuggestions: noop,
+  stepReview: noop,
+  reviewShown: noop,
 };
 
 function context(over: Partial<PaletteContext> = {}): PaletteContext {
@@ -443,8 +445,7 @@ const describing = (over: Partial<DescribeContext> = {}): DescribeContext => ({
   total: 0,
   uncategorized: [],
   failed: 0,
-  pending: [],
-  accepted: new Set(),
+  review: null,
   ...over,
 });
 
@@ -503,10 +504,72 @@ describe("describe commands", () => {
     expect(find(ctx, "describe:selected")).toBeUndefined();
   });
 
-  it("hides the review while a run is going", () => {
+  const reviewing = (over: Partial<ReviewView> = {}): ReviewView => ({
+    position: 1,
+    total: 12,
+    path: "reel.md",
+    terms: [
+      { term: "projector", definition: "Projectors.", ticked: true },
+      { term: "sponsored-ad", definition: "Paid promotions.", ticked: false },
+    ],
+    counts: { labels: 1, clips: 1 },
+    ...over,
+  });
+
+  it("reviews clip by clip, with the clip as the stage's subject", () => {
+    let toggled: string[] = [];
+    let stepped = 0;
+    let seen = false;
     const ctx = context({
-      describe: describing({ running: true, pending: [{ term: "food", definition: "", count: 2 }] }),
+      describe: describing({ review: reviewing() }),
+      actions: {
+        ...actions,
+        toggleSuggestion: (path: string, term: string) => (toggled = [path, term]),
+        stepReview: (delta: 1 | -1) => (stepped = delta),
+        reviewShown: () => (seen = true),
+      },
     });
+    const review = find(ctx, "describe:review");
+    expect(review?.label).toBe("Review suggested categories (12 clips)");
+    const stage = review?.stage;
+    expect(stage?.title).toBe("Review · clip 1 of 12");
+    expect(stage?.subject).toEqual(["reel.md"]);
+    expect(stage?.adding).toEqual(["projector"]);
+    expect(stage?.position).toBe("1 of 12");
+    stage?.step?.(1);
+    expect(stepped).toBe(1);
+    stage?.onShow?.();
+    expect(seen).toBe(true);
+    const rows = stage?.items() ?? [];
+    expect(rows.map((r) => r.id)).toEqual([
+      "describe:term:projector",
+      "describe:term:sponsored-ad",
+      "describe:next",
+      "describe:apply",
+    ]);
+    expect(rows[0].detailIcon).toBe("check");
+    expect(rows[0].keepOpen).toBe(true);
+    rows[1].run?.();
+    expect(toggled).toEqual(["reel.md", "sponsored-ad"]);
+    expect(rows[3].label).toBe("Apply all reviewed (1 label on 1 clip)");
+  });
+
+  it("offers the previous clip after the first, and no next on the last", () => {
+    const ctx = context({
+      describe: describing({ review: reviewing({ position: 12, counts: { labels: 5, clips: 12 } }) }),
+    });
+    const rows = find(ctx, "describe:review")?.stage?.items() ?? [];
+    expect(rows.map((r) => r.id)).toEqual([
+      "describe:term:projector",
+      "describe:term:sponsored-ad",
+      "describe:previous",
+      "describe:apply",
+    ]);
+    expect(rows[3].label).toBe("Apply all reviewed (5 labels on 12 clips)");
+  });
+
+  it("hides the review while a run is going", () => {
+    const ctx = context({ describe: describing({ running: true, review: reviewing() }) });
     expect(find(ctx, "describe:review")).toBeUndefined();
   });
 
@@ -516,30 +579,4 @@ describe("describe commands", () => {
     );
   });
 
-  it("opens a review stage with one row per suggested term", () => {
-    const ctx = context({
-      describe: describing({
-        pending: [
-          { term: "food", definition: "Dishes and restaurants.", count: 7 },
-          { term: "golf", definition: "Golf technique.", count: 1 },
-        ],
-        accepted: new Set(["food"]),
-      }),
-    });
-    const review = find(ctx, "describe:review");
-    expect(review?.label).toBe("Review suggested categories (2)");
-    const rows = review?.stage?.items() ?? [];
-    expect(rows.map((r) => r.id)).toEqual(["describe:term:food", "describe:term:golf", "describe:apply"]);
-    expect(rows[0].detailIcon).toBe("check");
-    expect(rows[0].keepOpen).toBe(true);
-    expect(rows[0].keywords).toBe("Dishes and restaurants.");
-    expect(rows[1].detail).toBe("1 clipping");
-    expect(rows[2].label).toBe("Apply 1 accepted");
-  });
-
-  it("names the apply row plainly when nothing is ticked", () => {
-    const ctx = context({ describe: describing({ pending: [{ term: "food", definition: "", count: 2 }] }) });
-    const rows = find(ctx, "describe:review")?.stage?.items() ?? [];
-    expect(rows[rows.length - 1].label).toBe("Keep none, use the closest existing");
-  });
 });

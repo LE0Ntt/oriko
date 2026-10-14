@@ -2,14 +2,16 @@ import { scrollRowIntoList } from "./scroll";
 import { setIcon } from "obsidian";
 import type { PaletteCommand, PaletteStage } from "./core/commands";
 import { subjectSummary } from "./core/describe";
+import { ClipPanel } from "./clip-panel";
+import type { ClipMedia } from "./clip-panel";
 import { resumeIndex, searchPalette } from "./core/palette-results";
 import type { PaletteRow, SearchOptions } from "./core/palette-results";
 import type { MatchRange } from "./core/palette-search";
 import type { ClippingRecord } from "./core/scan";
 
 const ROOT_PLACEHOLDER = "Search clippings and actions…";
-/** Thumbnails shown for a stage's subject before the rest collapse into a count. */
-const SUBJECT_THUMBS = 6;
+/** The panel, the gap, the palette and the margins: below this the panel is not shown. */
+const PANEL_ROOM = 400 + 14 + 620 + 32;
 
 export interface PaletteHandlers {
   /**
@@ -32,6 +34,8 @@ export interface PaletteHandlers {
    * you have to read rather than recognise.
    */
   preview: (path: string) => string;
+  /** A clip's media for the panel beside the palette, or null when it has none. */
+  clipMedia: (path: string) => ClipMedia | null;
 }
 
 /**
@@ -51,7 +55,9 @@ export class Palette {
   private input: HTMLInputElement | null = null;
   private listEl: HTMLElement | null = null;
   private chipEl: HTMLElement | null = null;
-  private subjectEl: HTMLElement | null = null;
+  private clipPanel: ClipPanel | null = null;
+  /** Which of a stage's subject clips the panel shows, stepped with Tab. */
+  private subjectIndex = 0;
   private onKey: ((event: KeyboardEvent) => void) | null = null;
 
   /**
@@ -107,6 +113,10 @@ export class Palette {
     this.backdrop.onclick = () => this.close();
 
     this.panel = this.container.createDiv({ cls: "pg-palette" });
+    this.clipPanel = new ClipPanel(this.container, {
+      media: (path) => this.handlers.clipMedia(path),
+      onStep: (delta) => this.stepStage(delta),
+    });
 
     const head = this.panel.createDiv({ cls: "pg-palette-head" });
     const glass = head.createDiv({ cls: "pg-palette-search" });
@@ -119,8 +129,6 @@ export class Palette {
       this.active = 0;
       this.render();
     };
-
-    this.subjectEl = this.panel.createDiv({ cls: "pg-palette-subject" });
 
     this.listEl = this.panel.createDiv({ cls: "pg-palette-list" });
     this.listEl.onmousemove = (event: MouseEvent) => {
@@ -161,7 +169,9 @@ export class Palette {
     this.input = null;
     this.listEl = null;
     this.chipEl = null;
-    this.subjectEl = null;
+    this.clipPanel?.destroy();
+    this.clipPanel = null;
+    this.subjectIndex = 0;
     this.stageId = null;
     this.stage = null;
     this.rows = [];
@@ -200,6 +210,12 @@ export class Palette {
     if (event.key === "ArrowUp" || (event.ctrlKey && event.key.toLowerCase() === "p")) {
       event.preventDefault();
       this.move(-1);
+      return;
+    }
+
+    if (event.key === "Tab" && this.stage) {
+      event.preventDefault();
+      this.stepStage(event.shiftKey ? -1 : 1);
       return;
     }
 
@@ -255,6 +271,8 @@ export class Palette {
     };
     this.stageId = command.id;
     this.stage = command.stage;
+    this.subjectIndex = 0;
+    command.stage.onShow?.();
     this.active = 0;
     if (this.input) {
       this.input.value = "";
@@ -270,6 +288,7 @@ export class Palette {
 
     this.stageId = null;
     this.stage = null;
+    this.subjectIndex = 0;
     this.active = 0;
     if (this.input) {
       this.input.value = resume?.query ?? "";
@@ -354,7 +373,7 @@ export class Palette {
       : searchPalette(query, commands, values, this.handlers.clippings(), options);
 
     this.paintChip();
-    this.paintSubject();
+    this.paintPanel();
 
     if (groups.length === 0) {
       list.createDiv({ cls: "pg-palette-empty", text: "No matches" });
@@ -392,51 +411,51 @@ export class Palette {
     if (this.stage) chip.createSpan({ text: this.stage.title });
   }
 
-  /**
-   * What the open stage is about to act on, above its choices: one clipping
-   * by picture, title and labels, or a strip of pictures and a count. Display
-   * only, so it is drawn outside the list and never takes the selection.
-   */
-  private paintSubject(): void {
-    const band = this.subjectEl;
-    if (!band) return;
-    band.empty();
-    const paths = this.stage?.subject ?? [];
-    band.toggleClass("is-visible", paths.length > 0);
-    if (paths.length === 0) return;
-
-    const byPath = new Map(this.handlers.clippings().map((record) => [record.path, record]));
-    const summary = subjectSummary(paths, (path) => byPath.get(path));
-    band.toggleClass("is-single", summary.title !== undefined);
-
-    const thumbs = band.createDiv({ cls: "pg-palette-subject-thumbs" });
-    for (const path of paths.slice(0, SUBJECT_THUMBS)) {
-      const cell = thumbs.createDiv({ cls: "pg-palette-subject-thumb" });
-      const url = this.handlers.preview(path);
-      if (!url) continue;
-      const image = cell.createEl("img");
-      image.loading = "lazy";
-      image.decoding = "async";
-      image.src = url;
-    }
-    if (paths.length > SUBJECT_THUMBS) {
-      thumbs.createDiv({ cls: "pg-palette-subject-more", text: `+${paths.length - SUBJECT_THUMBS}` });
-    }
-
-    const text = band.createDiv({ cls: "pg-palette-subject-text" });
-    if (summary.title !== undefined) {
-      text.createDiv({ cls: "pg-palette-subject-title", text: summary.title });
-      text.createDiv({
-        cls: "pg-palette-subject-labels",
-        text: summary.labels && summary.labels.length > 0 ? summary.labels.join(" · ") : "No labels yet",
-      });
+  /** Tab: the stage steps itself (the review), or the panel steps through the stage's subject. */
+  private stepStage(delta: 1 | -1): void {
+    const stage = this.stage;
+    if (!stage) return;
+    if (stage.step) {
+      stage.step(delta);
     } else {
-      text.createDiv({ cls: "pg-palette-subject-title", text: `${summary.count} clippings` });
-      text.createDiv({
-        cls: "pg-palette-subject-labels",
-        text: `${summary.labelled} already labelled · ${summary.count - summary.labelled} with none`,
-      });
+      const count = stage.subject?.length ?? 0;
+      if (count < 2) return;
+      this.subjectIndex = (this.subjectIndex + delta + count) % count;
     }
+    this.render();
+    this.input?.focus({ preventScroll: true });
+  }
+
+  /** The clip panel for a stage with a subject, when the pane has room for it. */
+  private paintPanel(): void {
+    const clipPanel = this.clipPanel;
+    const panel = this.panel;
+    if (!clipPanel || !panel) return;
+    const stage = this.stage;
+    const subject = stage?.subject ?? [];
+    const show = subject.length > 0 && this.container.clientWidth >= PANEL_ROOM;
+    panel.toggleClass("has-clip-panel", show);
+    if (!show || !stage) {
+      clipPanel.hide();
+      return;
+    }
+    if (this.subjectIndex >= subject.length) this.subjectIndex = 0;
+    const path = subject[this.subjectIndex];
+    const byPath = new Map(this.handlers.clippings().map((record) => [record.path, record]));
+    const record = byPath.get(path);
+    let badge = stage.position ?? "";
+    if (!stage.position && subject.length > 1) {
+      const summary = subjectSummary(subject, (p) => byPath.get(p));
+      badge = `${this.subjectIndex + 1} of ${subject.length} · ${summary.labelled} already labelled`;
+    }
+    clipPanel.show({
+      path,
+      title: record?.title ?? path,
+      labels: record?.categories ?? [],
+      adding: stage.adding ?? [],
+      badge,
+      canStep: stage.step !== undefined || subject.length > 1,
+    });
   }
 
   private paintRow(list: HTMLElement, row: PaletteRow): HTMLElement {

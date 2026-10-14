@@ -1,5 +1,5 @@
 import type { DescribeJob, Depth, RawResult, RunOutcome } from "./claude-engine";
-import type { DescribeContext } from "./commands";
+import type { DescribeContext, ReviewView } from "./commands";
 import {
   BATCH_SIZE,
   BATCH_TIMEOUT_MS,
@@ -12,8 +12,6 @@ import {
   describedValues,
   inPool,
   matchResults,
-  resolveReview,
-  retainPending,
   snapshot,
   suggestionsFor,
   validate,
@@ -22,6 +20,7 @@ import {
 import type { PendingStore } from "./describe";
 import type { FrontmatterWrite } from "./editable";
 import type { HistoryEntry } from "./history";
+import { ReviewSession } from "./review";
 import type { ClippingRecord } from "./scan";
 
 /**
@@ -126,7 +125,8 @@ export class DescribeRunner {
   /** Terms this run suggested, for its summary. */
   private suggested = new Set<string>();
   private pending: PendingStore = EMPTY_PENDING;
-  private accepted = new Set<string>();
+  /** The review, built on first use and rebuilt when the waiting suggestions change. */
+  private session: ReviewSession | null = null;
   /** The last run's request, so a retry asks for the same depth. */
   private request: Required<RunRequest> = { depth: "standard", selected: false };
 
@@ -137,6 +137,7 @@ export class DescribeRunner {
 
   setPending(store: PendingStore): void {
     this.pending = store;
+    this.session = null;
   }
 
   context(uncategorized: string[]): DescribeContext {
@@ -146,12 +147,26 @@ export class DescribeRunner {
       total: this.total,
       uncategorized,
       failed: this.failed.length,
-      pending: this.pending.terms.map((t) => ({
-        term: t.term,
-        definition: t.definition,
-        count: t.paths.length,
-      })),
-      accepted: this.accepted,
+      review: this.reviewView(),
+    };
+  }
+
+  private review(): ReviewSession {
+    this.session ??= new ReviewSession(this.pending);
+    return this.session;
+  }
+
+  private reviewView(): ReviewView | null {
+    if (this.pending.terms.length === 0) return null;
+    const session = this.review();
+    const clip = session.current();
+    if (!clip) return null;
+    return {
+      position: session.position,
+      total: session.total,
+      path: clip.path,
+      terms: clip.terms.map((t) => ({ ...t, ticked: session.isTicked(clip.path, t.term) })),
+      counts: session.counts(),
     };
   }
 
@@ -189,6 +204,8 @@ export class DescribeRunner {
         writer.record(entry(`Describe ${plural(written.length, "clipping", "clippings")}`, written, writer));
       }
       await this.deps.save(this.pending);
+      // Suggestions this run added join the review; ticks on clips still waiting carry over.
+      if (this.session) this.session = new ReviewSession(this.pending, this.session);
       this.deps.notify(this.halted ?? this.summary(written.length));
     }
   }
@@ -203,9 +220,20 @@ export class DescribeRunner {
     this.deps.engine.cancelAll();
   }
 
-  toggle(term: string): void {
-    if (this.accepted.has(term)) this.accepted.delete(term);
-    else this.accepted.add(term);
+  toggle(path: string, term: string): void {
+    this.review().toggle(path, term);
+  }
+
+  /** Moves the review one clip, and marks the clip it lands on as seen. */
+  step(delta: 1 | -1): void {
+    const session = this.review();
+    session.step(delta);
+    session.markShown();
+  }
+
+  /** The review stage is on screen, so its current clip has been seen. */
+  shown(): void {
+    this.review().markShown();
   }
 
   async apply(writer: DescribeWriter): Promise<void> {
@@ -213,14 +241,9 @@ export class DescribeRunner {
       this.deps.notify("Oriko: wait for describing to finish, then apply the review");
       return;
     }
-    const paths = [...new Set(this.pending.terms.flatMap((t) => t.paths))];
-    const skipped = paths.filter((path) => !this.deps.record(path)).length;
-    const writes = resolveReview(
-      this.pending,
-      this.accepted,
-      (path) => this.deps.record(path)?.categories ?? null
-    );
-    const kept = this.pending.terms.filter((t) => this.accepted.has(t.term)).length;
+    const session = this.review();
+    const { writes, skipped } = session.writes(this.pending, (path) => this.deps.record(path)?.categories ?? null);
+    const labels = session.counts().labels;
     const written: Written[] = [];
     const failed: string[] = [];
     for (const write of writes) {
@@ -232,13 +255,11 @@ export class DescribeRunner {
       else failed.push(write.path);
     }
 
-    // A write that failed keeps its suggestions, and their ticks, for the next review.
-    this.pending = retainPending(this.pending, failed);
-    const left = new Set(this.pending.terms.map((t) => t.term));
-    this.accepted = new Set([...this.accepted].filter((term) => left.has(term)));
+    this.pending = session.remaining(this.pending, failed);
+    this.session = new ReviewSession(this.pending, session);
     await this.deps.save(this.pending);
     if (written.length > 0) {
-      writer.record(entry(`Apply ${plural(kept, "suggested category", "suggested categories")}`, written, writer));
+      writer.record(entry(`Apply ${plural(labels, "suggested label", "suggested labels")}`, written, writer));
     }
 
     const parts = [`categories updated on ${plural(written.length, "clipping", "clippings")}`];

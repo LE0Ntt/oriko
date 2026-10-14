@@ -183,7 +183,7 @@ describe("DescribeRunner", () => {
     h.runner.setPending(pending({ terms: [{ term: "old", definition: "", paths: ["x.md"] }], fallbacks: {} }));
     await h.runner.describe(["a.md"], h.writer);
     expect(h.notices.at(-1)).toBe("Oriko: 1 described, 1 category to review");
-    expect(h.runner.context([]).pending.map((p) => p.term)).toEqual(["old", "food"]);
+    expect(h.runner.context([]).review?.total).toBe(2);
   });
 
   it("leaves a filed clipping out of the suggestions", async () => {
@@ -195,7 +195,7 @@ describe("DescribeRunner", () => {
       }),
     });
     await h.runner.describe(["filed.md"], h.writer);
-    expect(h.runner.context([]).pending).toEqual([]);
+    expect(h.runner.context([]).review).toBeNull();
     expect(h.written[0][1]).toEqual({ caption: "Caption 0.", media_text: "" });
   });
 
@@ -209,7 +209,8 @@ describe("DescribeRunner", () => {
           : allGood(jobs),
     });
     h.runner.setPending(pending({ terms: [{ term: "food", definition: "", paths: ["b.md"] }], fallbacks: {} }));
-    h.runner.toggle("food");
+    h.runner.shown();
+    h.runner.toggle("b.md", "food");
     const running = h.runner.describe(["a.md"], h.writer);
     await new Promise((r) => setTimeout(r, 0));
     await h.runner.apply(h.writer);
@@ -230,13 +231,46 @@ describe("DescribeRunner", () => {
     h.runner.setPending(
       pending({ terms: [{ term: "food", definition: "D", paths: ["a.md", "b.md", "c.md"] }], fallbacks: {} })
     );
-    h.runner.toggle("food");
+    for (const path of ["a.md", "b.md", "c.md"]) {
+      if (path !== "a.md") h.runner.step(1);
+      else h.runner.shown();
+      h.runner.toggle(path, "food");
+    }
     await h.runner.apply(h.writer);
     expect(h.notices.at(-1)).toBe(
       "Oriko: categories updated on 1 clipping, 1 skipped (renamed or deleted), 1 failed (kept for the next review)"
     );
-    expect(h.runner.context([]).pending).toEqual([{ term: "food", definition: "D", count: 1 }]);
-    expect(h.runner.context([]).accepted.has("food")).toBe(true);
+    const review = h.runner.context([]).review;
+    expect(review?.total).toBe(1);
+    expect(review?.path).toBe("b.md");
+    expect(review?.terms).toEqual([{ term: "food", definition: "D", ticked: true }]);
+  });
+
+  it("applies only the clips that were reviewed and keeps the rest", async () => {
+    const h = harness({ paths: ["a.md", "b.md"] });
+    h.runner.setPending(
+      pending({ terms: [{ term: "food", definition: "D", paths: ["a.md", "b.md"] }], fallbacks: {} })
+    );
+    h.runner.shown();
+    h.runner.toggle("a.md", "food");
+    await h.runner.apply(h.writer);
+    expect(h.written).toEqual([["a.md", { categories: ["food"] }]]);
+    expect(h.entries.map((e) => e.label)).toEqual(["Apply 1 suggested label"]);
+    expect(h.runner.context([]).review?.path).toBe("b.md");
+  });
+
+  it("shows the current clip and its ticks in the context", () => {
+    const h = harness();
+    h.runner.setPending(pending({ terms: [{ term: "food", definition: "D", paths: ["a.md"] }], fallbacks: {} }));
+    h.runner.shown();
+    h.runner.toggle("a.md", "food");
+    expect(h.runner.context([]).review).toEqual({
+      position: 1,
+      total: 1,
+      path: "a.md",
+      terms: [{ term: "food", definition: "D", ticked: true }],
+      counts: { labels: 1, clips: 1 },
+    });
   });
 
   it("stops when asked and keeps what it wrote", async () => {
@@ -294,7 +328,10 @@ describe("DescribeRunner depth", () => {
     });
     await h.runner.describe(["reel.md"], h.writer, { depth: "specific", selected: true });
     expect(h.written[0][1]).toEqual({ caption: "Caption 0.", media_text: "" });
-    expect(h.runner.context([]).pending).toEqual([{ term: "projector", definition: "Projectors.", count: 1 }]);
+    expect(h.runner.context([]).review?.path).toBe("reel.md");
+    expect(h.runner.context([]).review?.terms).toEqual([
+      { term: "projector", definition: "Projectors.", ticked: false },
+    ]);
   });
 
   it("retries failed clippings at the depth they were asked for", async () => {

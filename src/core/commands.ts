@@ -33,6 +33,14 @@ export interface PaletteStage {
    * made looking at them. Display only: nothing in it can be picked.
    */
   subject?: string[];
+  /** Labels about to be added to the subject's clip, shown as "+ label" in the panel. */
+  adding?: string[];
+  /** The panel's badge, such as "3 of 12". Without it the palette counts the subject itself. */
+  position?: string;
+  /** Tab and Shift-Tab. Without it, Tab steps through the subject in the panel. */
+  step?: (delta: 1 | -1) => void;
+  /** Called when the stage opens. */
+  onShow?: () => void;
 }
 
 export interface PaletteCommand {
@@ -79,9 +87,18 @@ export interface DescribeContext {
   uncategorized: string[];
   /** Clippings the last run could not describe. */
   failed: number;
-  /** Suggested categories waiting for review. */
-  pending: { term: string; definition: string; count: number }[];
-  accepted: ReadonlySet<string>;
+  /** The review on its current clip, or null when nothing is waiting. */
+  review: ReviewView | null;
+}
+
+/** The review as the palette shows it: the clip on show and its suggested labels. */
+export interface ReviewView {
+  position: number;
+  total: number;
+  path: string;
+  terms: Array<{ term: string; definition: string; ticked: boolean }>;
+  /** Ticked labels on seen clips, and how many clips have been seen. */
+  counts: { labels: number; clips: number };
 }
 
 /** The work behind the rows, all of it already implemented by the view. */
@@ -112,7 +129,9 @@ export interface PaletteActions {
   describeSelected(ids: string[], depth: Depth): void;
   stopDescribing(): void;
   retryDescribeFailed(): void;
-  toggleSuggestion(term: string): void;
+  toggleSuggestion(path: string, term: string): void;
+  stepReview(delta: 1 | -1): void;
+  reviewShown(): void;
   applySuggestions(): void;
 }
 
@@ -560,29 +579,68 @@ function depthStage(title: string, subject: string[], run: (depth: Depth) => voi
   };
 }
 
-function reviewRows(describe: DescribeContext, actions: PaletteActions): PaletteCommand[] {
-  const rows: PaletteCommand[] = describe.pending.map((p) => ({
-    id: `describe:term:${p.term}`,
-    label: p.term,
-    icon: "tag",
-    section: "Actions",
-    ...(describe.accepted.has(p.term)
-      ? { detailIcon: "check" }
-      : { detail: `${p.count} clipping${p.count === 1 ? "" : "s"}` }),
-    keywords: p.definition,
-    keepOpen: true,
-    run: () => actions.toggleSuggestion(p.term),
-  }));
-  const kept = describe.pending.filter((p) => describe.accepted.has(p.term)).length;
-  rows.push({
-    id: "describe:apply",
-    label: kept > 0 ? `Apply ${kept} accepted` : "Keep none, use the closest existing",
-    icon: "check-check",
-    section: "Actions",
-    divider: true,
-    run: () => actions.applySuggestions(),
-  });
-  return rows;
+function count(n: number, one: string, many: string): string {
+  return `${n} ${n === 1 ? one : many}`;
+}
+
+/** The review, one clip at a time: its suggested labels, then the way on and the way out. */
+function reviewStage(review: ReviewView, actions: PaletteActions): PaletteStage {
+  return {
+    title: `Review · clip ${review.position} of ${review.total}`,
+    placeholder: "Tick the labels this clip should get…",
+    subject: [review.path],
+    adding: review.terms.filter((t) => t.ticked).map((t) => t.term),
+    position: `${review.position} of ${review.total}`,
+    step: (delta) => actions.stepReview(delta),
+    onShow: () => actions.reviewShown(),
+    items: () => {
+      const rows: PaletteCommand[] = review.terms.map((t) => ({
+        id: `describe:term:${t.term}`,
+        label: t.term,
+        icon: "tag",
+        section: "Actions",
+        ...(t.ticked ? { detailIcon: "check" } : { detail: "new" }),
+        keywords: t.definition,
+        keepOpen: true,
+        run: () => actions.toggleSuggestion(review.path, t.term),
+      }));
+      let first = true;
+      const after = (row: PaletteCommand): void => {
+        rows.push({ ...row, divider: first });
+        first = false;
+      };
+      if (review.position < review.total) {
+        after({
+          id: "describe:next",
+          label: "Next clip",
+          icon: "arrow-right",
+          section: "Actions",
+          detail: "⇥",
+          keepOpen: true,
+          run: () => actions.stepReview(1),
+        });
+      }
+      if (review.position > 1) {
+        after({
+          id: "describe:previous",
+          label: "Previous clip",
+          icon: "arrow-left",
+          section: "Actions",
+          detail: "⇧⇥",
+          keepOpen: true,
+          run: () => actions.stepReview(-1),
+        });
+      }
+      after({
+        id: "describe:apply",
+        label: `Apply all reviewed (${count(review.counts.labels, "label", "labels")} on ${count(review.counts.clips, "clip", "clips")})`,
+        icon: "check-check",
+        section: "Actions",
+        run: () => actions.applySuggestions(),
+      });
+      return rows;
+    },
+  };
 }
 
 function describeCommands(context: PaletteContext): PaletteCommand[] {
@@ -638,18 +696,14 @@ function describeCommands(context: PaletteContext): PaletteCommand[] {
   }
 
   // Not while a run is going: applying would race the run's own writes.
-  if (describe.pending.length > 0 && !describe.running) {
+  if (describe.review && !describe.running) {
     items.push({
       id: "describe:review",
-      label: `Review suggested categories (${describe.pending.length})`,
+      label: `Review suggested categories (${count(describe.review.total, "clip", "clips")})`,
       icon: "list-checks",
       section: "Actions",
       keywords: `${DESCRIBE_WORDS} new categories approve`,
-      stage: {
-        title: "Suggested categories",
-        placeholder: "Tick the categories to keep…",
-        items: () => reviewRows(describe, actions),
-      },
+      stage: reviewStage(describe.review, actions),
     });
   }
   return items;

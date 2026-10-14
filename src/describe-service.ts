@@ -111,8 +111,16 @@ export class DescribeService {
     this.runner.stop();
   }
 
-  toggle(term: string): void {
-    this.runner.toggle(term);
+  toggle(path: string, term: string): void {
+    this.runner.toggle(path, term);
+  }
+
+  step(delta: 1 | -1): void {
+    this.runner.step(delta);
+  }
+
+  shown(): void {
+    this.runner.shown();
   }
 
   apply(writer: DescribeWriter): Promise<void> {

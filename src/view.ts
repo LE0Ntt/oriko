@@ -89,6 +89,7 @@ import { steamAppId } from "./core/steam";
 import { needsDescribing } from "./core/describe";
 import type { FrontmatterWrite } from "./core/editable";
 import type { DescribeWriter } from "./describe-service";
+import type { ClipMedia } from "./clip-panel";
 
 
 export const VIEW_TYPE_GRID = "oriko";
@@ -382,6 +383,7 @@ export class OrikoView extends ItemView {
       }),
       onClipping: (path) => this.revealClipping(path),
       preview: (path) => this.previewUrl(path),
+      clipMedia: (path) => this.clipMedia(path),
     });
 
     this.onGridKey = (event: KeyboardEvent) => {
@@ -1724,6 +1726,20 @@ export class OrikoView extends ItemView {
     return preview ? resourceUrl(this.app.vault, preview.path, preview.remote) : "";
   }
 
+  /** A clip's playable media for the panel beside the palette, found the way its tile finds it. */
+  private clipMedia(path: string): ClipMedia | null {
+    const record = this.plugin.index.get(path);
+    if (!record) return null;
+    const [tile] = buildTiles([record], this.plugin.archiver.cache, undefined, this.looks());
+    if (!tile) return null;
+    const src = resourceUrl(this.app.vault, tile.filePath, tile.remote);
+    if (!src) return null;
+    const poster = tile.posterPath
+      ? resourceUrl(this.app.vault, tile.posterPath, /^https?:\/\//i.test(tile.posterPath))
+      : "";
+    return { kind: tile.kind, src, poster };
+  }
+
   // ---- Palette -----------------------------------------------------------
 
   /**
@@ -1788,7 +1804,9 @@ export class OrikoView extends ItemView {
           void this.plugin.describer.describe(ids, this.describeWriter(), { depth, selected: true }),
         stopDescribing: () => this.plugin.describer.stop(),
         retryDescribeFailed: () => void this.plugin.describer.retryFailed(this.describeWriter()),
-        toggleSuggestion: (term) => this.plugin.describer.toggle(term),
+        toggleSuggestion: (path, term) => this.plugin.describer.toggle(path, term),
+        stepReview: (delta) => this.plugin.describer.step(delta),
+        reviewShown: () => this.plugin.describer.shown(),
         applySuggestions: () => void this.plugin.describer.apply(this.describeWriter()),
       },
     };

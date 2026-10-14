@@ -2042,77 +2042,130 @@
   display: block;
 }
 
-/* What a stage is about to act on, shown above its choices so the choice is
-   made looking at it. Display only: it never takes the selection. */
-.pg-palette-subject {
+/* Room for the clip panel: the palette moves right of centre and the panel
+   takes the space to its left, so the pair sits centred together. */
+.pg-palette.has-clip-panel {
+  left: calc(50% + 207px);
+}
+
+/* The clip a stage is about: its media playing, its title and labels. */
+.pg-clip-panel {
+  position: absolute;
+  z-index: 45;
+  top: 14vh;
+  left: calc(50% - 517px);
+  width: 400px;
   display: none;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 13px;
-  border-bottom: 1px solid var(--pg-rule);
+  flex-direction: column;
+  gap: 8px;
+  padding: var(--pg-surface-pad);
+  border-radius: var(--pg-surface-radius);
+  background-color: var(--pg-surface);
+  backdrop-filter: var(--pg-surface-blur);
+  -webkit-backdrop-filter: var(--pg-surface-blur);
+  box-shadow: var(--pg-surface-ring), var(--pg-surface-lift);
 }
 
-.pg-palette-subject.is-visible {
+.pg-clip-panel.is-visible {
   display: flex;
 }
 
-.pg-palette-subject-thumbs {
-  display: flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 4px;
+.pg-clip-panel-frame {
+  position: relative;
+  overflow: hidden;
+  border-radius: 14px;
+  background: #000;
 }
 
-.pg-palette-subject-thumb {
+.pg-clip-panel-media video,
+.pg-clip-panel-media img {
+  display: block;
+  width: 100%;
+  max-height: 52vh;
+  object-fit: contain;
+}
+
+.pg-clip-panel-empty {
+  padding: 48px 16px;
+  color: var(--pg-surface-dim);
+  font-size: 13px;
+  text-align: center;
+}
+
+.pg-clip-panel-badge {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  padding: 3px 8px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 12px;
+}
+
+.pg-clip-panel-badge.is-empty {
+  display: none;
+}
+
+.pg-clip-panel-step {
+  position: absolute;
+  top: 50%;
   width: 32px;
   height: 32px;
-  border-radius: 6px;
-  overflow: hidden;
-  background: var(--pg-inner-well);
+  margin-top: -16px;
+  border-radius: 16px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.5);
+  color: #fff;
+  cursor: pointer;
 }
 
-.pg-palette-subject.is-single .pg-palette-subject-thumb {
-  width: 52px;
-  height: 52px;
-  border-radius: 8px;
+.pg-clip-panel.can-step .pg-clip-panel-step {
+  display: flex;
 }
 
-.pg-palette-subject-thumb img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
+.pg-clip-panel-step.is-prev {
+  left: 8px;
 }
 
-.pg-palette-subject-more {
-  padding-left: 2px;
-  color: var(--pg-surface-text);
-  font-size: 12px;
-  opacity: 0.6;
+.pg-clip-panel-step.is-next {
+  right: 8px;
 }
 
-.pg-palette-subject-text {
+.pg-clip-panel-meta {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 6px;
   min-width: 0;
+  padding: 2px 6px 4px;
 }
 
-.pg-palette-subject-title,
-.pg-palette-subject-labels {
+.pg-clip-panel-title {
   overflow: hidden;
   color: var(--pg-surface-text);
+  font-size: 13px;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 
-.pg-palette-subject-title {
-  font-size: 13px;
+.pg-clip-panel-labels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
-.pg-palette-subject-labels {
+.pg-clip-panel-pill {
+  padding: 2px 8px;
+  border-radius: 8px;
+  background: var(--pg-inner-chip);
+  color: var(--pg-surface-text);
   font-size: 12px;
-  opacity: 0.6;
+}
+
+.pg-clip-panel-pill.is-adding {
+  background: color-mix(in srgb, var(--pg-accent) 28%, transparent);
 }
 
 /* Selector carries the view as well as the panel, so it outranks Obsidian's
