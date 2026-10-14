@@ -1,6 +1,6 @@
 import { App, arrayBufferToBase64, normalizePath, requestUrl } from "obsidian";
 import type { MediaCache } from "./core/cache";
-import { FRAME_FRACTIONS, fitWithin, gridCell } from "./core/describe";
+import { fitWithin, frameChange, frameGrid, pickFrames, sampleTimes } from "./core/describe";
 import type { ClippingRecord } from "./core/scan";
 import { nodeRequire } from "./core/system";
 import { buildTiles } from "./core/tile";
@@ -111,23 +111,17 @@ async function videoGrid(app: App, path: string): Promise<string | null> {
     await loaded;
     if (!video.videoWidth || !Number.isFinite(video.duration) || video.duration <= 0) return null;
 
-    const cell = gridCell(video.videoWidth, video.videoHeight);
-    const canvas = new OffscreenCanvas(cell.width * 2, cell.height * 2);
+    const times = await framesToShow(video);
+    const grid = frameGrid(times.length, video.videoWidth, video.videoHeight);
+    const { width, height } = grid.cell;
+    const canvas = new OffscreenCanvas(grid.cols * width, grid.rows * height);
     // CPU-backed, so each frame is read back as it is drawn, between the
     // seeks, and the encode at the end has no GPU readback to wait on.
     const context = canvas.getContext("2d", { willReadFrequently: true });
     if (!context) return null;
-    for (const [index, fraction] of FRAME_FRACTIONS.entries()) {
-      const seeked = once(video, "seeked");
-      video.currentTime = video.duration * fraction;
-      await seeked;
-      context.drawImage(
-        video,
-        (index % 2) * cell.width,
-        Math.floor(index / 2) * cell.height,
-        cell.width,
-        cell.height
-      );
+    for (const [index, time] of times.entries()) {
+      await seek(video, time);
+      context.drawImage(video, (index % grid.cols) * width, Math.floor(index / grid.cols) * height, width, height);
     }
     return await encode(canvas);
   } finally {
@@ -135,6 +129,33 @@ async function videoGrid(app: App, path: string): Promise<string | null> {
     video.load();
     URL.revokeObjectURL(url);
   }
+}
+
+/** Each sample is drawn this small: enough to see a cut, cheap to compare. */
+const SAMPLE_EDGE = 32;
+
+async function seek(video: HTMLVideoElement, time: number): Promise<void> {
+  const seeked = once(video, "seeked");
+  video.currentTime = Math.max(0, Math.min(time, video.duration - 0.05));
+  await seeked;
+}
+
+/** The moments worth showing: the picture is sampled about once a second to find its cuts. */
+async function framesToShow(video: HTMLVideoElement): Promise<number[]> {
+  const times = sampleTimes(video.duration);
+  const sample = new OffscreenCanvas(SAMPLE_EDGE, SAMPLE_EDGE);
+  const context = sample.getContext("2d", { willReadFrequently: true });
+  if (!context) return pickFrames([], [], video.duration);
+  const changes: number[] = [];
+  let previous: Uint8ClampedArray | null = null;
+  for (const time of times) {
+    await seek(video, time);
+    context.drawImage(video, 0, 0, SAMPLE_EDGE, SAMPLE_EDGE);
+    const data = context.getImageData(0, 0, SAMPLE_EDGE, SAMPLE_EDGE).data;
+    changes.push(previous ? frameChange(previous, data) : Number.POSITIVE_INFINITY);
+    previous = data;
+  }
+  return pickFrames(times, changes, video.duration);
 }
 
 interface FsModule {

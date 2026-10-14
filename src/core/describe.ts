@@ -22,8 +22,6 @@ export const BODY_LIMIT = 1500;
 export const DEFINITION_LIMIT = 200;
 /** The long edge an image is sent at, and the width of a video's frame grid. */
 export const MEDIA_EDGE = 1024;
-/** Where a video's four frames are taken, as fractions of its length. */
-export const FRAME_FRACTIONS = [0.1, 0.38, 0.64, 0.88];
 
 /** A caption is the mark of a described clipping, whether or not its categories wait on a review. */
 export function isDescribed(record: ClippingRecord): boolean {
@@ -409,11 +407,77 @@ export function fitWithin(
   return { width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)) };
 }
 
+/** Picture samples taken from a video to find its cuts: about one a second, at most this many. */
+const MAX_SAMPLES = 30;
+/** Frames sent for one video, and how many are spread evenly when it has too few cuts. */
+const MAX_FRAMES = 8;
+const EVEN_FRACTIONS = [0.08, 0.24, 0.4, 0.56, 0.72, 0.88];
+/** A change this large between two samples, on a 0 to 255 scale, reads as a cut. */
+const CUT_THRESHOLD = 30;
+const MIN_PICKED = 4;
+
+const round2 = (n: number): number => Math.round(n * 100) / 100;
+
+/** When to sample a video's picture to find its cuts: centred in even steps of at least a second. */
+export function sampleTimes(duration: number): number[] {
+  if (!(duration > 0)) return [];
+  const step = Math.max(1, duration / MAX_SAMPLES);
+  const count = Math.min(MAX_SAMPLES, Math.max(1, Math.floor(duration / step)));
+  return Array.from({ length: count }, (_, k) => round2((k + 0.5) * step));
+}
+
+/** How much the picture changed between two RGBA samples: mean luminance difference, 0 to 255. */
+export function frameChange(a: Uint8ClampedArray, b: Uint8ClampedArray): number {
+  const pixels = Math.min(a.length, b.length) / 4;
+  if (pixels === 0) return 0;
+  let total = 0;
+  for (let i = 0; i < pixels * 4; i += 4) {
+    const la = 0.299 * a[i] + 0.587 * a[i + 1] + 0.114 * a[i + 2];
+    const lb = 0.299 * b[i] + 0.587 * b[i + 1] + 0.114 * b[i + 2];
+    total += Math.abs(la - lb);
+  }
+  return Math.round((total / pixels) * 10) / 10;
+}
+
 /**
- * One quadrant of a video's 2x2 frame grid: the video's own shape, fitted
- * inside a square half the grid's width. A portrait video once made a
- * 1024 x 1820 grid, and encoding it held the main thread for over 100 ms.
+ * Which moments of a video to show Claude: the first frame and the biggest
+ * cuts, in order, up to 8. A clip with too few cuts (a single shot, a UI
+ * demo) gets six evenly spaced frames. Measured on Trevor's reels, cut frames
+ * read six lines of on-screen text from an ad where four fixed frames read one.
  */
-export function gridCell(videoWidth: number, videoHeight: number): { width: number; height: number } {
-  return fitWithin(videoWidth, videoHeight, MEDIA_EDGE / 2);
+export function pickFrames(times: readonly number[], changes: readonly number[], duration: number): number[] {
+  const strong = changes
+    .map((change, index) => ({ change, index }))
+    .filter(({ change, index }) => index > 0 && change >= CUT_THRESHOLD)
+    .sort((a, b) => b.change - a.change)
+    .slice(0, MAX_FRAMES - 1)
+    .map(({ index }) => index);
+  const picked = [0, ...strong].sort((a, b) => a - b);
+  if (times.length === 0 || picked.length < MIN_PICKED) {
+    return EVEN_FRACTIONS.map((f) => round2(duration * f));
+  }
+  return picked.map((index) => times[index]);
+}
+
+/**
+ * How a video's frames are laid out: cells in the video's own shape, as
+ * large as the grid allows within 1024 x 1024. Padding portrait reels into
+ * square cells wasted most of each cell on black.
+ */
+export function frameGrid(
+  count: number,
+  videoWidth: number,
+  videoHeight: number
+): { cols: number; rows: number; cell: { width: number; height: number } } {
+  const vw = videoWidth > 0 ? videoWidth : 1;
+  const vh = videoHeight > 0 ? videoHeight : 1;
+  const even = (n: number): number => Math.max(2, Math.floor(n / 2) * 2);
+  let best = { cols: 1, rows: Math.max(1, count), cell: { width: 2, height: 2 } };
+  for (let cols = 1; cols <= Math.max(1, count); cols++) {
+    const rows = Math.ceil(count / cols);
+    const scale = Math.min(MEDIA_EDGE / cols / vw, MEDIA_EDGE / rows / vh);
+    const cell = { width: even(vw * scale), height: even(vh * scale) };
+    if (cell.width * cell.height > best.cell.width * best.cell.height) best = { cols, rows, cell };
+  }
+  return best;
 }

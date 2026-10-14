@@ -215,3 +215,11 @@ describe("depth", () => {
     expect(standard).toContain("1 to 4 terms");
   });
 });
+
+describe("captions", () => {
+  it("describe the clip and never the frame grid", () => {
+    expect(SYSTEM_PROMPT).toContain("Never mention frames, grids or panels");
+    const content = parse(batchMessage([job()], ["design"])).message.content;
+    expect(content[content.length - 1].text).toContain("never mention frames or a grid");
+  });
+});

@@ -7,7 +7,8 @@ import {
   describedValues,
   fallbackWrites,
   fitWithin,
-  gridCell,
+  frameGrid,
+  frameChange,
   inPool,
   isDescribed,
   limiter,
@@ -16,8 +17,10 @@ import {
   matchVocabulary,
   needsDescribing,
   parsePending,
+  pickFrames,
   resolveReview,
   retainPending,
+  sampleTimes,
   snapshot,
   subjectSummary,
   suggestionsFor,
@@ -343,12 +346,6 @@ describe("media sizes", () => {
     expect(fitWithin(800, 600)).toEqual({ width: 800, height: 600 });
   });
 
-  it("fits each video frame inside half the grid's width, both ways", () => {
-    expect(gridCell(1920, 1080)).toEqual({ width: 512, height: 288 });
-    // A portrait video keeps its shape inside the box; it once made a 1024 x 1820 grid.
-    expect(gridCell(1080, 1920)).toEqual({ width: 288, height: 512 });
-    expect(gridCell(1000, 1000)).toEqual({ width: 512, height: 512 });
-  });
 });
 
 describe("depth", () => {
@@ -399,5 +396,42 @@ describe("subjectSummary", () => {
 
   it("counts how many of several already have labels", () => {
     expect(subjectSummary(["reel.md", "new.md", "gone.md"], find)).toEqual({ count: 2, labelled: 1 });
+  });
+});
+
+describe("video frames", () => {
+  it("samples about once a second, never more than 30 times", () => {
+    expect(sampleTimes(5)).toEqual([0.5, 1.5, 2.5, 3.5, 4.5]);
+    const long = sampleTimes(180);
+    expect(long).toHaveLength(30);
+    expect(long[0]).toBe(3);
+    expect(long[29]).toBe(177);
+  });
+
+  it("measures how much the picture changed between two samples", () => {
+    const grey = new Uint8ClampedArray([100, 100, 100, 255, 100, 100, 100, 255]);
+    const white = new Uint8ClampedArray([255, 255, 255, 255, 255, 255, 255, 255]);
+    expect(frameChange(grey, grey)).toBe(0);
+    expect(frameChange(grey, white)).toBe(155);
+  });
+
+  it("keeps the first frame and the biggest cuts, in order, up to 8", () => {
+    const times = [0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5, 10.5, 11.5];
+    const changes = [Infinity, 5, 80, 4, 60, 70, 3, 90, 40, 50, 35, 45];
+    expect(pickFrames(times, changes, 12)).toEqual([0.5, 2.5, 4.5, 5.5, 7.5, 8.5, 9.5, 11.5]);
+  });
+
+  it("spreads six frames evenly when the picture barely changes", () => {
+    const times = [0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5];
+    const changes = [Infinity, 4, 31, 6, 5, 3, 2, 8, 6, 5];
+    expect(pickFrames(times, changes, 10)).toEqual([0.8, 2.4, 4, 5.6, 7.2, 8.8]);
+  });
+
+  it("lays frames out in the video's own shape, as large as fits in 1024 x 1024", () => {
+    expect(frameGrid(8, 1080, 1920)).toEqual({ cols: 4, rows: 2, cell: { width: 256, height: 454 } });
+    expect(frameGrid(8, 1920, 1080)).toEqual({ cols: 2, rows: 4, cell: { width: 454, height: 256 } });
+    expect(frameGrid(6, 1080, 1920)).toEqual({ cols: 3, rows: 2, cell: { width: 288, height: 512 } });
+    expect(frameGrid(4, 1080, 1920)).toEqual({ cols: 2, rows: 2, cell: { width: 288, height: 512 } });
+    expect(frameGrid(8, 1000, 1000)).toEqual({ cols: 3, rows: 3, cell: { width: 340, height: 340 } });
   });
 });

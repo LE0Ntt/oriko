@@ -51,8 +51,9 @@ export type RunOutcome =
 
 export const SYSTEM_PROMPT =
   "You describe saved web clippings for a visual bookmark wall. Each clipping is an image, " +
-  "or a 2x2 grid of four frames sampled across one video, plus the text of its note. For a " +
-  "frame grid, describe the video. Answer only through the structured output.";
+  "or a grid of frames taken in order across one video, plus the text of its note. Describe " +
+  "the clipping itself: what it shows and what happens in it. Never mention frames, grids or " +
+  "panels. Answer only through the structured output.";
 
 const ITEM_SCHEMA = {
   type: "object",
@@ -147,7 +148,7 @@ function instructions(vocabulary: string[], depth: Depth): string {
     "Return one item per clipping above, with the clipping's number as its id:",
     ...LABEL_RULES[depth],
     "- fallback: the single closest existing category, or an empty string when there are none.",
-    "- caption: one sentence describing what the media shows.",
+    "- caption: one sentence describing what the clip shows; never mention frames or a grid.",
     "- media_text: the legible text in the media, verbatim, condensed to the meaningful lines, or an empty string when there is none.",
   ].join("\n");
 }
