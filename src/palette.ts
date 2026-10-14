@@ -4,14 +4,12 @@ import type { PaletteCommand, PaletteStage } from "./core/commands";
 import { subjectSummary } from "./core/describe";
 import { ClipPanel } from "./clip-panel";
 import type { ClipMedia } from "./clip-panel";
-import { resumeIndex, searchPalette } from "./core/palette-results";
+import { keepCursor, panelFits, resumeIndex, searchPalette, stageChip } from "./core/palette-results";
 import type { PaletteRow, SearchOptions } from "./core/palette-results";
 import type { MatchRange } from "./core/palette-search";
 import type { ClippingRecord } from "./core/scan";
 
 const ROOT_PLACEHOLDER = "Search clippings and actions…";
-/** The panel, the gap, the palette and the margins: below this the panel is not shown. */
-const PANEL_ROOM = 400 + 14 + 620 + 32;
 
 export interface PaletteHandlers {
   /**
@@ -58,6 +56,9 @@ export class Palette {
   private clipPanel: ClipPanel | null = null;
   /** Which of a stage's subject clips the panel shows, stepped with Tab. */
   private subjectIndex = 0;
+  /** The pane's width, kept by a resize observer so a resize re-lays the panel at once. */
+  private width = 0;
+  private resizer: ResizeObserver | null = null;
   private onKey: ((event: KeyboardEvent) => void) | null = null;
 
   /**
@@ -117,6 +118,12 @@ export class Palette {
       media: (path) => this.handlers.clipMedia(path),
       onStep: (delta) => this.stepStage(delta),
     });
+    this.width = this.container.clientWidth;
+    this.resizer = new ResizeObserver((entries) => {
+      this.width = entries[0]?.contentRect.width ?? this.container.clientWidth;
+      this.paintStageChrome();
+    });
+    this.resizer.observe(this.container);
 
     const head = this.panel.createDiv({ cls: "pg-palette-head" });
     const glass = head.createDiv({ cls: "pg-palette-search" });
@@ -169,6 +176,8 @@ export class Palette {
     this.input = null;
     this.listEl = null;
     this.chipEl = null;
+    this.resizer?.disconnect();
+    this.resizer = null;
     this.clipPanel?.destroy();
     this.clipPanel = null;
     this.subjectIndex = 0;
@@ -323,11 +332,11 @@ export class Palette {
       // count, and the row it changed should stay under the cursor.
       const key = row.key;
       this.render();
-      const index = this.rows.findIndex((candidate) => candidate.key === key);
-      if (index !== -1) {
-        this.active = index;
-        this.paintActive();
-      }
+      this.active = keepCursor(
+        this.rows.map((candidate) => candidate.key),
+        key
+      );
+      this.paintActive();
       // A click lands focus on the row, and the next keystroke would go to
       // the wall rather than the query.
       this.input?.focus({ preventScroll: true });
@@ -372,8 +381,7 @@ export class Palette {
         searchPalette(query, this.stage.items(), [], [], { ...options, limit: 0 })
       : searchPalette(query, commands, values, this.handlers.clippings(), options);
 
-    this.paintChip();
-    this.paintPanel();
+    this.paintStageChrome();
 
     if (groups.length === 0) {
       list.createDiv({ cls: "pg-palette-empty", text: "No matches" });
@@ -403,13 +411,20 @@ export class Palette {
     this.paintActive();
   }
 
-  private paintChip(): void {
+  /** The chip and the clip panel, which decide together who names the clip. */
+  private paintStageChrome(): void {
+    const unseen = this.paintPanel();
+    this.paintChip(unseen);
+  }
+
+  private paintChip(clip?: string): void {
     const chip = this.chipEl;
     if (!chip) return;
     chip.empty();
     chip.toggleClass("is-visible", this.stage !== null);
-    if (this.stage) chip.createSpan({ text: this.stage.title });
+    if (this.stage) chip.createSpan({ text: stageChip(this.stage.title, clip) });
   }
+
 
   /** Tab: the stage steps itself (the review), or the panel steps through the stage's subject. */
   private stepStage(delta: 1 | -1): void {
@@ -422,27 +437,38 @@ export class Palette {
       if (count < 2) return;
       this.subjectIndex = (this.subjectIndex + delta + count) % count;
     }
+    // A new clip is a new list: the cursor starts on its first row.
+    this.active = 0;
     this.render();
     this.input?.focus({ preventScroll: true });
   }
 
-  /** The clip panel for a stage with a subject, when the pane has room for it. */
-  private paintPanel(): void {
+  /**
+   * The clip panel for a stage with a subject, when the pane has room for it.
+   * Returns the clip's title when there is a clip the panel cannot show, so
+   * the chip can name it instead.
+   */
+  private paintPanel(): string | undefined {
     const clipPanel = this.clipPanel;
     const panel = this.panel;
-    if (!clipPanel || !panel) return;
+    if (!clipPanel || !panel) return undefined;
     const stage = this.stage;
     const subject = stage?.subject ?? [];
-    const show = subject.length > 0 && this.container.clientWidth >= PANEL_ROOM;
-    panel.toggleClass("has-clip-panel", show);
-    if (!show || !stage) {
+    if (!stage || subject.length === 0) {
+      panel.toggleClass("has-clip-panel", false);
       clipPanel.hide();
-      return;
+      return undefined;
     }
     if (this.subjectIndex >= subject.length) this.subjectIndex = 0;
     const path = subject[this.subjectIndex];
     const byPath = new Map(this.handlers.clippings().map((record) => [record.path, record]));
     const record = byPath.get(path);
+    const show = panelFits(this.width);
+    panel.toggleClass("has-clip-panel", show);
+    if (!show) {
+      clipPanel.hide();
+      return record?.title ?? path;
+    }
     let badge = stage.position ?? "";
     if (!stage.position && subject.length > 1) {
       const summary = subjectSummary(subject, (p) => byPath.get(p));
@@ -456,6 +482,7 @@ export class Palette {
       badge,
       canStep: stage.step !== undefined || subject.length > 1,
     });
+    return undefined;
   }
 
   private paintRow(list: HTMLElement, row: PaletteRow): HTMLElement {

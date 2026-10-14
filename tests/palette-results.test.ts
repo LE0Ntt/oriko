@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resumeIndex, searchPalette } from "../src/core/palette-results";
+import { keepCursor, panelFits, resumeIndex, searchPalette, stageChip } from "../src/core/palette-results";
 import type { PaletteCommand } from "../src/core/commands";
 import type { ClippingRecord } from "../src/core/scan";
 
@@ -177,5 +177,40 @@ describe("resumeIndex", () => {
 
   it("treats an unremembered key as no key at all", () => {
     expect(resumeIndex(keys, "", 1)).toBe(1);
+  });
+});
+
+describe("keepCursor", () => {
+  it("stays on the row it was on", () => {
+    expect(keepCursor(["a", "b", "c"], "b")).toBe(1);
+  });
+
+  it("goes back to the first row when that row is gone, never onto a row it never chose", () => {
+    expect(keepCursor(["term", "describe:previous", "describe:apply"], "describe:next")).toBe(0);
+  });
+});
+
+describe("panelFits", () => {
+  it("needs room for the panel, the gap, the palette and the margins", () => {
+    expect(panelFits(1066)).toBe(true);
+    expect(panelFits(1065)).toBe(false);
+  });
+});
+
+describe("stageChip", () => {
+  it("is the stage title when the clip is in view", () => {
+    expect(stageChip("Review · clip 3 of 12")).toBe("Review · clip 3 of 12");
+  });
+
+  it("names the clip when the panel cannot show it", () => {
+    expect(stageChip("Review · clip 3 of 12", "LuxVision projector reel")).toBe(
+      "Review · clip 3 of 12 · LuxVision projector reel"
+    );
+  });
+
+  it("cuts a long clip title", () => {
+    const chip = stageChip("Review · clip 1 of 2", "x".repeat(80));
+    expect(chip.length).toBeLessThanOrEqual("Review · clip 1 of 2 · ".length + 40);
+    expect(chip.endsWith("…")).toBe(true);
   });
 });

@@ -185,3 +185,33 @@ export function resumeIndex(
   if (found !== -1) return found;
   return Math.max(0, Math.min(index, keys.length - 1));
 }
+
+/**
+ * Where the cursor goes after a row that keeps the palette open: back onto
+ * that row, or the first row when it is gone. Never the old index on a new
+ * list, which could be a row the user never chose (stepping to a clip with
+ * fewer labels once left the cursor on Apply).
+ */
+export function keepCursor(keys: readonly string[], key: string): number {
+  const index = keys.indexOf(key);
+  return index === -1 ? 0 : index;
+}
+
+/** The clip panel, the gap, the palette and the margins: below this the panel is not shown. */
+export const PANEL_ROOM = 400 + 14 + 620 + 32;
+
+export function panelFits(width: number): boolean {
+  return width >= PANEL_ROOM;
+}
+
+const CHIP_CLIP_LIMIT = 40;
+
+/**
+ * The chip over a stage. When the panel has no room to show the clip, the
+ * chip names it, so nothing is ever labelled without saying which clip it is.
+ */
+export function stageChip(title: string, clip?: string): string {
+  if (!clip) return title;
+  const name = clip.length > CHIP_CLIP_LIMIT ? `${clip.slice(0, CHIP_CLIP_LIMIT - 1).trimEnd()}…` : clip;
+  return `${title} · ${name}`;
+}
