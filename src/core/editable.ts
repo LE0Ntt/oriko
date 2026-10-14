@@ -78,3 +78,10 @@ export function toggleAcross(
     return single ? [value] : withValue([...values], value);
   });
 }
+
+/**
+ * Several properties of one note, as one write. A string writes a scalar, a
+ * list writes a list, and "" or [] removes the key, so the note reads the way
+ * one that never had it reads.
+ */
+export type FrontmatterWrite = Record<string, string | string[]>;
