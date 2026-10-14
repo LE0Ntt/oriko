@@ -10,8 +10,10 @@ import {
   addPending,
   batches,
   describedValues,
+  fallbackWrites,
   inPool,
   matchResults,
+  retainPending,
   snapshot,
   suggestionsFor,
   validate,
@@ -266,6 +268,51 @@ export class DescribeRunner {
     if (skipped > 0) parts.push(`${skipped} skipped (renamed or deleted)`);
     if (failed.length > 0) parts.push(`${failed.length} failed (kept for the next review)`);
     this.deps.notify(`Oriko: ${parts.join(", ")}`);
+  }
+
+  /** Drops the suggestions of the clip on show; the review moves on to the next clip. */
+  async discardClip(writer: DescribeWriter): Promise<void> {
+    const clip = this.review().current();
+    if (clip) await this.discard([clip.path], writer, false);
+  }
+
+  /** Drops every waiting suggestion, which takes the review away. */
+  async discardAll(writer: DescribeWriter): Promise<void> {
+    await this.discard([...new Set(this.pending.terms.flatMap((t) => t.paths))], writer, true);
+  }
+
+  /**
+   * The review changes first and the writes follow, so the palette, which
+   * re-renders as soon as the action returns, already shows the next clip.
+   */
+  private async discard(paths: string[], writer: DescribeWriter, all: boolean): Promise<void> {
+    if (this.running) {
+      this.deps.notify("Oriko: wait for describing to finish, then discard suggestions");
+      return;
+    }
+    const planned = fallbackWrites(this.pending, paths, (path) => this.deps.record(path)?.categories ?? null).flatMap(
+      (write) => {
+        const record = this.deps.record(write.path);
+        if (!record) return [];
+        const after: FrontmatterWrite = { categories: write.categories };
+        return [{ path: write.path, before: snapshot(record, after), after }];
+      }
+    );
+
+    const drop = new Set(paths);
+    const keep = [...new Set(this.pending.terms.flatMap((t) => t.paths))].filter((path) => !drop.has(path));
+    const previous = this.review();
+    this.pending = retainPending(this.pending, keep);
+    this.session = this.pending.terms.length > 0 ? new ReviewSession(this.pending, previous) : null;
+    this.session?.markShown();
+
+    const written: Written[] = [];
+    for (const w of planned) if (await writer.write(w.path, w.after)) written.push(w);
+    await this.deps.save(this.pending);
+    if (written.length > 0) {
+      writer.record(entry(`Discard suggestions for ${plural(paths.length, "clip", "clips")}`, written, writer));
+    }
+    if (all) this.deps.notify("Oriko: suggestions discarded");
   }
 
   private progress(): string {

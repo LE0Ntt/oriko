@@ -273,6 +273,41 @@ describe("DescribeRunner", () => {
     });
   });
 
+  it("discards the clip on show and moves to the next", async () => {
+    const h = harness({ paths: ["a.md", "b.md"] });
+    h.runner.setPending(
+      pending({ terms: [{ term: "food", definition: "D", paths: ["a.md", "b.md"] }], fallbacks: { "a.md": "media" } })
+    );
+    h.runner.shown();
+    h.runner.toggle("a.md", "food");
+    await h.runner.discardClip(h.writer);
+    expect(h.written).toEqual([["a.md", { categories: ["media"] }]]);
+    expect(h.entries.map((e) => e.label)).toEqual(["Discard suggestions for 1 clip"]);
+    const review = h.runner.context([]).review;
+    expect(review?.path).toBe("b.md");
+    expect(review?.total).toBe(1);
+  });
+
+  it("discards every suggestion at once and the review goes away", async () => {
+    const h = harness({ paths: ["a.md", "b.md"] });
+    h.runner.setPending(
+      pending({
+        terms: [{ term: "food", definition: "D", paths: ["a.md", "b.md"] }],
+        fallbacks: { "a.md": "media", "b.md": "reference" },
+      })
+    );
+    h.runner.shown();
+    h.runner.toggle("a.md", "food");
+    await h.runner.discardAll(h.writer);
+    expect(h.written).toEqual([
+      ["a.md", { categories: ["media"] }],
+      ["b.md", { categories: ["reference"] }],
+    ]);
+    expect(h.runner.context([]).review).toBeNull();
+    expect(h.events.at(-1)).toBe("save");
+    expect(h.notices.at(-1)).toBe("Oriko: suggestions discarded");
+  });
+
   it("stops when asked and keeps what it wrote", async () => {
     let release: (outcome: RunOutcome) => void = () => undefined;
     const h = harness({

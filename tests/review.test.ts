@@ -110,6 +110,20 @@ describe("ReviewSession", () => {
     expect(next.writes(grown, current).writes.map((w) => w.path)).toEqual(["reel.md"]);
   });
 
+  it("stays in place when the clip on show is dropped", () => {
+    const first = new ReviewSession(store);
+    first.step(1);
+    const without: PendingStore = {
+      terms: store.terms
+        .map((t) => ({ ...t, paths: t.paths.filter((p) => p !== "tv.md") }))
+        .filter((t) => t.paths.length > 0),
+      fallbacks: store.fallbacks,
+    };
+    const next = new ReviewSession(without, first);
+    expect(next.current()?.path).toBe("swing.md");
+    expect(next.position).toBe(2);
+  });
+
   it("is empty for an empty store", () => {
     const session = new ReviewSession({ terms: [], fallbacks: {} });
     expect(session.current()).toBeNull();

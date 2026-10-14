@@ -350,6 +350,24 @@ export function retainPending(store: PendingStore, paths: readonly string[]): Pe
   return { terms, fallbacks };
 }
 
+/**
+ * Discarding never adds a suggested label, but a clip left with no labels at
+ * all gets its closest existing one, so nothing ends up blank.
+ */
+export function fallbackWrites(
+  store: PendingStore,
+  paths: readonly string[],
+  current: (path: string) => readonly string[] | null
+): ReviewWrite[] {
+  const writes: ReviewWrite[] = [];
+  for (const path of paths) {
+    const now = current(path);
+    const fallback = store.fallbacks[path];
+    if (now !== null && now.length === 0 && fallback) writes.push({ path, categories: [fallback] });
+  }
+  return writes;
+}
+
 export interface ReviewWrite {
   path: string;
   categories: string[];

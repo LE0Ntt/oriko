@@ -41,6 +41,8 @@ export interface PaletteStage {
   step?: (delta: 1 | -1) => void;
   /** Called when the stage opens. */
   onShow?: () => void;
+  /** Shift-Backspace: drops what the stage is showing (the review's current clip). */
+  discard?: () => void;
 }
 
 export interface PaletteCommand {
@@ -132,6 +134,8 @@ export interface PaletteActions {
   toggleSuggestion(path: string, term: string): void;
   stepReview(delta: 1 | -1): void;
   reviewShown(): void;
+  discardClip(): void;
+  discardAll(): void;
   applySuggestions(): void;
 }
 
@@ -593,6 +597,7 @@ function reviewStage(review: ReviewView, actions: PaletteActions): PaletteStage 
     position: `${review.position} of ${review.total}`,
     step: (delta) => actions.stepReview(delta),
     onShow: () => actions.reviewShown(),
+    discard: () => actions.discardClip(),
     items: () => {
       const rows: PaletteCommand[] = review.terms.map((t) => ({
         id: `describe:term:${t.term}`,
@@ -638,6 +643,27 @@ function reviewStage(review: ReviewView, actions: PaletteActions): PaletteStage 
         section: "Actions",
         run: () => actions.applySuggestions(),
       });
+      rows.push(
+        {
+          id: "describe:discard-clip",
+          label: "Discard this clip's suggestions",
+          icon: "x",
+          section: "Actions",
+          detail: "⇧⌫",
+          destructive: true,
+          divider: true,
+          keepOpen: true,
+          run: () => actions.discardClip(),
+        },
+        {
+          id: "describe:discard-all",
+          label: "Discard all suggestions",
+          icon: "trash-2",
+          section: "Actions",
+          destructive: true,
+          run: () => actions.discardAll(),
+        }
+      );
       return rows;
     },
   };

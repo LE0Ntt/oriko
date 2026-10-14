@@ -123,6 +123,14 @@ export class DescribeService {
     this.runner.shown();
   }
 
+  discardClip(writer: DescribeWriter): Promise<void> {
+    return this.runner.discardClip(writer);
+  }
+
+  discardAll(writer: DescribeWriter): Promise<void> {
+    return this.runner.discardAll(writer);
+  }
+
   apply(writer: DescribeWriter): Promise<void> {
     return this.runner.apply(writer);
   }

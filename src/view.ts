@@ -1807,6 +1807,8 @@ export class OrikoView extends ItemView {
         toggleSuggestion: (path, term) => this.plugin.describer.toggle(path, term),
         stepReview: (delta) => this.plugin.describer.step(delta),
         reviewShown: () => this.plugin.describer.shown(),
+        discardClip: () => void this.plugin.describer.discardClip(this.describeWriter()),
+        discardAll: () => void this.plugin.describer.discardAll(this.describeWriter()),
         applySuggestions: () => void this.plugin.describer.apply(this.describeWriter()),
       },
     };

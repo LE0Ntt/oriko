@@ -50,7 +50,8 @@ export class ReviewSession {
     }
     const at = previous.current()?.path;
     const found = at ? this.clips.findIndex((clip) => clip.path === at) : -1;
-    this.index = found >= 0 ? found : 0;
+    // The clip on show was dropped (discarded): stay at its place, which is now the next clip.
+    this.index = found >= 0 ? found : Math.min(previous.index, Math.max(0, this.clips.length - 1));
   }
 
   get position(): number {

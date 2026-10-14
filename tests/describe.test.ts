@@ -5,6 +5,7 @@ import {
   batches,
   bodyExcerpt,
   describedValues,
+  fallbackWrites,
   fitWithin,
   gridCell,
   inPool,
@@ -293,6 +294,16 @@ describe("suggestions", () => {
         fallbacks: { "a.md": "media", "b.md": 1 },
       })
     ).toEqual({ terms: [{ term: "food", definition: "D", paths: ["a.md"] }], fallbacks: { "a.md": "media" } });
+  });
+});
+
+describe("fallbackWrites", () => {
+  it("gives the closest existing label only to clips left with none", () => {
+    const store = { terms: [], fallbacks: { "a.md": "media", "b.md": "reference", "c.md": "design" } };
+    const now: Record<string, string[]> = { "a.md": [], "b.md": ["golf"] };
+    expect(fallbackWrites(store, ["a.md", "b.md", "c.md", "d.md"], (p) => now[p] ?? null)).toEqual([
+      { path: "a.md", categories: ["media"] },
+    ]);
   });
 });
 

@@ -37,6 +37,8 @@ const actions = {
   applySuggestions: noop,
   stepReview: noop,
   reviewShown: noop,
+  discardClip: noop,
+  discardAll: noop,
 };
 
 function context(over: Partial<PaletteContext> = {}): PaletteContext {
@@ -546,12 +548,39 @@ describe("describe commands", () => {
       "describe:term:sponsored-ad",
       "describe:next",
       "describe:apply",
+      "describe:discard-clip",
+      "describe:discard-all",
     ]);
     expect(rows[0].detailIcon).toBe("check");
     expect(rows[0].keepOpen).toBe(true);
     rows[1].run?.();
     expect(toggled).toEqual(["reel.md", "sponsored-ad"]);
     expect(rows[3].label).toBe("Apply all reviewed (1 label on 1 clip)");
+  });
+
+  it("lets a clip's suggestions, or all of them, be discarded", () => {
+    let discarded = "";
+    const ctx = context({
+      describe: describing({ review: reviewing() }),
+      actions: {
+        ...actions,
+        discardClip: () => (discarded = "clip"),
+        discardAll: () => (discarded = "all"),
+      },
+    });
+    const stage = find(ctx, "describe:review")?.stage;
+    const rows = stage?.items() ?? [];
+    const clip = rows.find((r) => r.id === "describe:discard-clip");
+    const all = rows.find((r) => r.id === "describe:discard-all");
+    expect(clip?.label).toBe("Discard this clip's suggestions");
+    expect(clip?.destructive).toBe(true);
+    expect(clip?.keepOpen).toBe(true);
+    expect(all?.label).toBe("Discard all suggestions");
+    expect(all?.destructive).toBe(true);
+    all?.run?.();
+    expect(discarded).toBe("all");
+    stage?.discard?.();
+    expect(discarded).toBe("clip");
   });
 
   it("offers the previous clip after the first, and no next on the last", () => {
@@ -564,6 +593,8 @@ describe("describe commands", () => {
       "describe:term:sponsored-ad",
       "describe:previous",
       "describe:apply",
+      "describe:discard-clip",
+      "describe:discard-all",
     ]);
     expect(rows[3].label).toBe("Apply all reviewed (5 labels on 12 clips)");
   });

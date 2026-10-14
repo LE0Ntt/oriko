@@ -246,6 +246,14 @@ export class Palette {
       return;
     }
 
+    if (event.key === "Backspace" && event.shiftKey && this.stage?.discard) {
+      event.preventDefault();
+      this.stage.discard();
+      this.active = 0;
+      this.render();
+      return;
+    }
+
     if ((event.key === "ArrowLeft" || event.key === "Backspace") && this.stageId) {
       if ((this.input?.value ?? "") !== "") return;
       event.preventDefault();
