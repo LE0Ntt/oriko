@@ -1,0 +1,111 @@
+import { batchMessage, childEnv, claudeArgs, parseRun } from "./core/claude-engine";
+import type { DescribeJob, RunOutcome } from "./core/claude-engine";
+import { nodeRequire } from "./core/system";
+import { claudePath, hostEnv } from "./convert";
+
+/**
+ * Runs Claude Code for Describe. The thin half: what to send and how to read
+ * the answer are in core/claude-engine.ts. One process per batch; the batch
+ * goes in on stdin and the answer comes back as stream-json on stdout.
+ */
+
+export interface Engine {
+  run(jobs: DescribeJob[], vocabulary: string[], timeoutMs: number): Promise<RunOutcome>;
+  /** Ends every running process. Their runs resolve as errors. */
+  cancelAll(): void;
+}
+
+interface Readable {
+  on(event: "data", listener: (chunk: unknown) => void): void;
+}
+
+interface ChildProcess {
+  stdin: { write(data: string): void; end(): void; on(event: "error", listener: () => void): void };
+  stdout: Readable;
+  stderr: Readable;
+  on(event: "close", listener: () => void): void;
+  on(event: "error", listener: (error: unknown) => void): void;
+  kill(): boolean;
+}
+
+interface SpawnModule {
+  spawn(
+    command: string,
+    args: string[],
+    options: { cwd: string; env: Record<string, string | undefined> }
+  ): ChildProcess;
+}
+
+interface OsModule {
+  tmpdir(): string;
+}
+
+interface PathModule {
+  dirname(path: string): string;
+}
+
+export function claudeAvailable(): boolean {
+  return nodeRequire("child_process") !== null && claudePath() !== null;
+}
+
+export class ClaudeCodeEngine implements Engine {
+  private children = new Set<ChildProcess>();
+
+  run(jobs: DescribeJob[], vocabulary: string[], timeoutMs: number): Promise<RunOutcome> {
+    const command = claudePath();
+    const cp = nodeRequire("child_process") as SpawnModule | null;
+    const os = nodeRequire("os") as OsModule | null;
+    const path = nodeRequire("path") as PathModule | null;
+    if (!command || !cp || !os || !path) {
+      return Promise.resolve({ ok: false, failure: "error", message: "Claude Code was not found" });
+    }
+
+    return new Promise<RunOutcome>((resolve) => {
+      let stdout = "";
+      let settled = false;
+      let child: ChildProcess;
+      const { env, delimiter } = hostEnv();
+
+      try {
+        // The temp folder as working directory, so no project CLAUDE.md is read.
+        child = cp.spawn(command, claudeArgs(), {
+          cwd: os.tmpdir(),
+          env: childEnv(env, path.dirname(command), delimiter),
+        });
+      } catch (error) {
+        resolve({ ok: false, failure: "error", message: String(error) });
+        return;
+      }
+
+      const finish = (outcome: RunOutcome): void => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timer);
+        this.children.delete(child);
+        resolve(outcome);
+      };
+
+      const timer = window.setTimeout(() => {
+        child.kill();
+        finish({ ok: false, failure: "error", message: "Claude Code timed out" });
+      }, timeoutMs);
+
+      this.children.add(child);
+      child.stdout.on("data", (chunk) => {
+        stdout += String(chunk);
+      });
+      child.on("error", (error) => finish({ ok: false, failure: "error", message: String(error) }));
+      child.on("close", () => finish(parseRun(stdout)));
+      // A process that dies before reading stdin closes the pipe; the close
+      // handler above reports it, so the write error itself is not news.
+      child.stdin.on("error", () => undefined);
+      child.stdin.write(batchMessage(jobs, vocabulary));
+      child.stdin.end();
+    });
+  }
+
+  cancelAll(): void {
+    for (const child of this.children) child.kill();
+    this.children.clear();
+  }
+}
