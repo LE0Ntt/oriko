@@ -9,6 +9,7 @@ import {
   gridCell,
   inPool,
   isDescribed,
+  limiter,
   kebab,
   matchResults,
   matchVocabulary,
@@ -16,6 +17,7 @@ import {
   parsePending,
   resolveReview,
   snapshot,
+  suggestionsFor,
   validate,
   wallVocabulary,
 } from "../src/core/describe";
@@ -90,6 +92,38 @@ describe("choosing clippings", () => {
       running--;
     });
     expect(peak).toBe(3);
+  });
+
+  it("keeps the other lanes going when one item throws, and reports it", async () => {
+    const done: number[] = [];
+    const errors: number[] = [];
+    await inPool(
+      [1, 2, 3, 4],
+      2,
+      async (n) => {
+        if (n === 2) throw new Error("boom");
+        done.push(n);
+      },
+      (n) => errors.push(n)
+    );
+    expect(done.sort()).toEqual([1, 3, 4]);
+    expect(errors).toEqual([2]);
+  });
+
+  it("shares one limit across separate callers", async () => {
+    const limit = limiter(2);
+    let running = 0;
+    let peak = 0;
+    const task = (): Promise<number> =>
+      limit(async () => {
+        running++;
+        peak = Math.max(peak, running);
+        await new Promise((r) => setTimeout(r, 5));
+        running--;
+        return 1;
+      });
+    expect(await Promise.all([task(), task(), task(), task(), task()])).toEqual([1, 1, 1, 1, 1]);
+    expect(peak).toBe(2);
   });
 });
 
@@ -220,6 +254,12 @@ describe("suggestions", () => {
     expect(store.terms).toEqual([{ term: "food", definition: "Dishes.", paths: ["a.md", "b.md"] }]);
     expect(store.fallbacks).toEqual({ "a.md": "media" });
     expect(EMPTY_PENDING.terms).toEqual([]);
+  });
+
+  it("keeps suggestions only for a clipping that had no categories", () => {
+    const d = described({ proposals: [{ term: "food", definition: "" }], fallback: "media" });
+    expect(suggestionsFor([], d)).toBe(d);
+    expect(suggestionsFor(["coffee"], d)).toEqual({ ...d, proposals: [], fallback: null });
   });
 
   it("ignores a clipping with no suggestions", () => {

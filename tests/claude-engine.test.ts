@@ -7,6 +7,8 @@ import {
   childEnv,
   claudeArgs,
   parseRun,
+  spawnOptions,
+  textCollector,
 } from "../src/core/claude-engine";
 import type { DescribeJob } from "../src/core/claude-engine";
 
@@ -153,5 +155,33 @@ describe("childEnv", () => {
   it("only adds the tool's folder on Windows", () => {
     const env = childEnv({ Path: "C:\\Windows" }, "C:\\Tools", ";");
     expect(env.Path).toBe("C:\\Tools;C:\\Windows");
+  });
+});
+
+describe("textCollector", () => {
+  it("decodes a character split across chunks", () => {
+    const bytes = new TextEncoder().encode("a·b 从这里开始");
+    const collect = textCollector();
+    collect.push(bytes.slice(0, 2));
+    collect.push(bytes.slice(2, 9));
+    collect.push(bytes.slice(9));
+    expect(collect.text()).toBe("a·b 从这里开始");
+  });
+
+  it("takes strings as they come", () => {
+    const collect = textCollector();
+    collect.push("ab");
+    collect.push("c");
+    expect(collect.text()).toBe("abc");
+  });
+});
+
+describe("spawnOptions", () => {
+  it("discards stderr so a chatty Claude Code cannot block on a full pipe", () => {
+    expect(spawnOptions("/tmp", { PATH: "/usr/bin" })).toEqual({
+      cwd: "/tmp",
+      env: { PATH: "/usr/bin" },
+      stdio: ["pipe", "pipe", "ignore"],
+    });
   });
 });

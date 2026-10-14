@@ -12,10 +12,12 @@ import {
   bodyExcerpt,
   describedValues,
   inPool,
+  limiter,
   matchResults,
   parsePending,
   resolveReview,
   snapshot,
+  suggestionsFor,
   validate,
   wallVocabulary,
 } from "./core/describe";
@@ -39,7 +41,7 @@ import { mediaFor } from "./describe-media";
 
 const STORE_FILE = "describe.json";
 const RATE_LIMIT_WAIT_MS = 20000;
-/** Media prepared at once inside a batch: a video is read whole into memory. */
+/** Media prepared at once across the whole run: a video is read whole into memory. */
 const MEDIA_LANES = 3;
 
 export interface DescribeWriter {
@@ -73,6 +75,9 @@ export class DescribeService {
   private pending: PendingStore = EMPTY_PENDING;
   private accepted = new Set<string>();
   private notice: Notice | null = null;
+  /** Paths this run has counted, done or failed, so a lane that throws fails only the rest. */
+  private handled = new Set<string>();
+  private prepare = limiter(MEDIA_LANES);
 
   constructor(
     private app: App,
@@ -125,24 +130,34 @@ export class DescribeService {
     this.done = 0;
     this.total = paths.length;
     this.failed = [];
+    this.handled = new Set();
+    this.prepare = limiter(MEDIA_LANES);
     const vocabulary = wallVocabulary(this.records());
     const written: Written[] = [];
     this.notice = new Notice(this.progress(), 0);
 
     try {
-      await inPool(batches(paths), CONCURRENCY, (group) => this.runGroup(group, vocabulary, writer, written));
+      await inPool(
+        batches(paths),
+        CONCURRENCY,
+        (group) => this.runGroup(group, vocabulary, writer, written),
+        // A lane that throws fails only what it had not counted yet; the
+        // other lanes carry on, and the run still ends with its undo entry.
+        (group) => {
+          for (const path of group) if (!this.handled.has(path)) this.fail(path);
+        }
+      );
     } finally {
       this.engine.cancelAll();
       this.running = false;
       this.notice?.hide();
       this.notice = null;
+      if (written.length > 0) {
+        writer.record(this.entry(`Describe ${plural(written.length, "clipping", "clippings")}`, written, writer));
+      }
+      await this.save();
+      new Notice(this.halted ?? this.summary(written.length));
     }
-
-    if (written.length > 0) {
-      writer.record(this.entry(`Describe ${plural(written.length, "clipping", "clippings")}`, written, writer));
-    }
-    await this.save();
-    new Notice(this.halted ?? this.summary(written.length));
   }
 
   retryFailed(writer: DescribeWriter): Promise<void> {
@@ -207,14 +222,15 @@ export class DescribeService {
     };
   }
 
-  private tick(): void {
+  private tick(path: string): void {
+    this.handled.add(path);
     this.done++;
     this.notice?.setMessage(this.progress());
   }
 
   private fail(path: string): void {
     this.failed.push(path);
-    this.tick();
+    this.tick(path);
   }
 
   private halt(failure: "not-logged-in" | "usage-limit"): void {
@@ -228,8 +244,8 @@ export class DescribeService {
     const file = this.app.vault.getAbstractFileByPath(normalizePath(path));
     if (!record || !(file instanceof TFile)) return null;
     const [image, text] = await Promise.all([
-      mediaFor(this.app, record, this.cache()).catch(() => null),
-      this.app.vault.cachedRead(file),
+      this.prepare(() => mediaFor(this.app, record, this.cache())).catch(() => null),
+      this.app.vault.cachedRead(file).catch(() => ""),
     ]);
     return {
       id,
@@ -243,14 +259,7 @@ export class DescribeService {
   }
 
   private async jobsFor(paths: string[]): Promise<DescribeJob[]> {
-    const jobs = new Array<DescribeJob | null>(paths.length).fill(null);
-    await inPool(
-      paths.map((path, id) => ({ path, id })),
-      MEDIA_LANES,
-      async ({ path, id }) => {
-        jobs[id] = await this.jobFor(path, id);
-      }
-    );
+    const jobs = await Promise.all(paths.map((path, id) => this.jobFor(path, id)));
     return jobs.filter((job): job is DescribeJob => job !== null);
   }
 
@@ -276,7 +285,8 @@ export class DescribeService {
     if (this.stopped) return;
     const jobs = await this.jobsFor(paths);
     // A clipping deleted since the run began has nothing to describe.
-    for (let i = jobs.length; i < paths.length; i++) this.tick();
+    const found = new Set(jobs.map((job) => job.path));
+    for (const path of paths) if (!found.has(path)) this.tick(path);
     if (jobs.length === 0 || this.stopped) return;
 
     const outcome = await this.runJobs(jobs, vocabulary, jobs.length > 1 ? BATCH_TIMEOUT_MS : SINGLE_TIMEOUT_MS);
@@ -316,7 +326,7 @@ export class DescribeService {
   ): Promise<void> {
     const record = this.record(path);
     if (!record) {
-      this.tick();
+      this.tick(path);
       return;
     }
     const described = validate(raw, path, vocabulary);
@@ -324,8 +334,8 @@ export class DescribeService {
     const before = snapshot(record, after);
     if (await writer.write(path, after)) {
       written.push({ path, before, after });
-      this.pending = addPending(this.pending, described);
-      this.tick();
+      this.pending = addPending(this.pending, suggestionsFor(record.categories, described));
+      this.tick(path);
     } else {
       this.fail(path);
     }

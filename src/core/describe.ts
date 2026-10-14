@@ -38,20 +38,57 @@ export function batches<T>(items: readonly T[], size = BATCH_SIZE): T[][] {
   return out;
 }
 
-/** Runs work over items with at most `limit` going at once. */
+/**
+ * Runs work over items with at most `limit` going at once. An item that
+ * throws is reported to `onError` and its lane moves on, so one failure never
+ * ends the pool while the other lanes are still working.
+ */
 export async function inPool<T>(
   items: readonly T[],
   limit: number,
-  work: (item: T) => Promise<void>
+  work: (item: T) => Promise<void>,
+  onError: (item: T, error: unknown) => void = () => undefined
 ): Promise<void> {
   let next = 0;
   const lane = async (): Promise<void> => {
     while (next < items.length) {
       const item = items[next++];
-      await work(item);
+      try {
+        await work(item);
+      } catch (error) {
+        onError(item, error);
+      }
     }
   };
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, lane));
+}
+
+/**
+ * A shared cap on concurrent work: every call to the returned function waits
+ * for a free slot. One limiter spans a whole run, so separate lanes share it.
+ */
+export function limiter(limit: number): <T>(work: () => Promise<T>) => Promise<T> {
+  let active = 0;
+  const waiting: Array<() => void> = [];
+  const next = (): void => {
+    if (active >= limit) return;
+    const start = waiting.shift();
+    if (!start) return;
+    active++;
+    start();
+  };
+  return <T>(work: () => Promise<T>): Promise<T> =>
+    new Promise<T>((resolve, reject) => {
+      waiting.push(() => {
+        work()
+          .then(resolve, reject)
+          .finally(() => {
+            active--;
+            next();
+          });
+      });
+      next();
+    });
 }
 
 const EMBED = /!\[\[[^\]]*\]\]|!\[[^\]]*\]\([^)]*\)/g;
@@ -199,6 +236,15 @@ export interface PendingStore {
 }
 
 export const EMPTY_PENDING: PendingStore = { terms: [], fallbacks: {} };
+
+/**
+ * The suggestions a described clipping contributes to the review. Only a
+ * clipping that had no categories gets any: one the user had already filed
+ * keeps its categories untouched, by the spec's scope.
+ */
+export function suggestionsFor(existing: readonly string[], described: Described): Described {
+  return existing.length === 0 ? described : { ...described, proposals: [], fallback: null };
+}
 
 export function addPending(store: PendingStore, described: Described): PendingStore {
   if (described.proposals.length === 0) return store;

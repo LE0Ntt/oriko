@@ -237,6 +237,36 @@ export function parseRun(stdout: string): RunOutcome {
 }
 
 /**
+ * Collects a child's stdout as text. Bytes are decoded as one stream, so a
+ * character split across two chunks (any accent, any CJK) arrives whole.
+ */
+export function textCollector(): { push(chunk: unknown): void; text(): string } {
+  const decoder = new TextDecoder("utf-8");
+  let out = "";
+  return {
+    push(chunk: unknown): void {
+      if (typeof chunk === "string") out += chunk;
+      // isView, which holds for a Buffer from another JS context too.
+      else if (ArrayBuffer.isView(chunk)) out += decoder.decode(chunk, { stream: true });
+    },
+    text(): string {
+      return out + decoder.decode();
+    },
+  };
+}
+
+/**
+ * How Claude Code is spawned. stderr is discarded: nothing reads it, and an
+ * unread pipe that fills up would block the child until its timeout.
+ */
+export function spawnOptions(
+  cwd: string,
+  env: Record<string, string | undefined>
+): { cwd: string; env: Record<string, string | undefined>; stdio: ["pipe", "pipe", "ignore"] } {
+  return { cwd, env, stdio: ["pipe", "pipe", "ignore"] };
+}
+
+/**
  * The environment Claude Code starts in: the desktop session's own, without
  * ANTHROPIC_API_KEY so it uses its own login (the subscription), and with its
  * folder and Homebrew's on PATH, because Electron on macOS starts without the

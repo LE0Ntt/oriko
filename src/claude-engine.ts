@@ -1,4 +1,4 @@
-import { batchMessage, childEnv, claudeArgs, parseRun } from "./core/claude-engine";
+import { batchMessage, childEnv, claudeArgs, parseRun, spawnOptions, textCollector } from "./core/claude-engine";
 import type { DescribeJob, RunOutcome } from "./core/claude-engine";
 import { nodeRequire } from "./core/system";
 import { claudePath, hostEnv } from "./convert";
@@ -22,7 +22,6 @@ interface Readable {
 interface ChildProcess {
   stdin: { write(data: string): void; end(): void; on(event: "error", listener: () => void): void };
   stdout: Readable;
-  stderr: Readable;
   on(event: "close", listener: () => void): void;
   on(event: "error", listener: (error: unknown) => void): void;
   kill(): boolean;
@@ -32,7 +31,7 @@ interface SpawnModule {
   spawn(
     command: string,
     args: string[],
-    options: { cwd: string; env: Record<string, string | undefined> }
+    options: ReturnType<typeof spawnOptions>
   ): ChildProcess;
 }
 
@@ -61,17 +60,18 @@ export class ClaudeCodeEngine implements Engine {
     }
 
     return new Promise<RunOutcome>((resolve) => {
-      let stdout = "";
+      const stdout = textCollector();
       let settled = false;
       let child: ChildProcess;
       const { env, delimiter } = hostEnv();
 
       try {
         // The temp folder as working directory, so no project CLAUDE.md is read.
-        child = cp.spawn(command, claudeArgs(), {
-          cwd: os.tmpdir(),
-          env: childEnv(env, path.dirname(command), delimiter),
-        });
+        child = cp.spawn(
+          command,
+          claudeArgs(),
+          spawnOptions(os.tmpdir(), childEnv(env, path.dirname(command), delimiter))
+        );
       } catch (error) {
         resolve({ ok: false, failure: "error", message: String(error) });
         return;
@@ -91,11 +91,9 @@ export class ClaudeCodeEngine implements Engine {
       }, timeoutMs);
 
       this.children.add(child);
-      child.stdout.on("data", (chunk) => {
-        stdout += String(chunk);
-      });
+      child.stdout.on("data", (chunk) => stdout.push(chunk));
       child.on("error", (error) => finish({ ok: false, failure: "error", message: String(error) }));
-      child.on("close", () => finish(parseRun(stdout)));
+      child.on("close", () => finish(parseRun(stdout.text())));
       // A process that dies before reading stdin closes the pipe; the close
       // handler above reports it, so the write error itself is not news.
       child.stdin.on("error", () => undefined);
