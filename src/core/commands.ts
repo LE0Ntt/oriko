@@ -63,6 +63,21 @@ export interface PaletteCommand {
   run?: () => void;
 }
 
+/** What Describe can offer right now. Null hides every Describe row. */
+export interface DescribeContext {
+  running: boolean;
+  /** Clippings finished in the current run, and how many it has. */
+  done: number;
+  total: number;
+  /** Clippings with no categories and no caption. */
+  uncategorized: number;
+  /** Clippings the last run could not describe. */
+  failed: number;
+  /** Suggested categories waiting for review. */
+  pending: { term: string; definition: string; count: number }[];
+  accepted: ReadonlySet<string>;
+}
+
 /** The work behind the rows, all of it already implemented by the view. */
 export interface PaletteActions {
   openNote(id: string): void;
@@ -87,6 +102,12 @@ export interface PaletteActions {
   archiveAll(): void;
   selectAll(): void;
   resetZoom(): void;
+  describeUncategorized(): void;
+  describeSelected(ids: string[]): void;
+  stopDescribing(): void;
+  retryDescribeFailed(): void;
+  toggleSuggestion(term: string): void;
+  applySuggestions(): void;
 }
 
 export interface PaletteContext {
@@ -117,6 +138,8 @@ export interface PaletteContext {
    * somewhere to put it.
    */
   canExport: boolean;
+  /** Null off desktop, with Describe switched off, or when Claude Code is not found. */
+  describe: DescribeContext | null;
   actions: PaletteActions;
 }
 
@@ -504,10 +527,105 @@ function captureCommands(context: PaletteContext): PaletteCommand[] {
 }
 
 /** In section order, which is the order the palette shows them in. */
+const DESCRIBE_WORDS = "claude ai tag caption categorize label text ocr";
+
+function reviewRows(describe: DescribeContext, actions: PaletteActions): PaletteCommand[] {
+  const rows: PaletteCommand[] = describe.pending.map((p) => ({
+    id: `describe:term:${p.term}`,
+    label: p.term,
+    icon: "tag",
+    section: "Actions",
+    ...(describe.accepted.has(p.term)
+      ? { detailIcon: "check" }
+      : { detail: `${p.count} clipping${p.count === 1 ? "" : "s"}` }),
+    keywords: p.definition,
+    keepOpen: true,
+    run: () => actions.toggleSuggestion(p.term),
+  }));
+  const kept = describe.pending.filter((p) => describe.accepted.has(p.term)).length;
+  rows.push({
+    id: "describe:apply",
+    label: kept > 0 ? `Apply ${kept} accepted` : "Keep none, use the closest existing",
+    icon: "check-check",
+    section: "Actions",
+    divider: true,
+    run: () => actions.applySuggestions(),
+  });
+  return rows;
+}
+
+function describeCommands(context: PaletteContext): PaletteCommand[] {
+  const describe = context.describe;
+  if (!describe) return [];
+  const { actions, selection } = context;
+  const items: PaletteCommand[] = [];
+
+  if (describe.running) {
+    items.push({
+      id: "describe:stop",
+      label: "Stop describing",
+      icon: "square",
+      section: "Actions",
+      detail: `${describe.done} of ${describe.total}`,
+      keywords: `${DESCRIBE_WORDS} cancel`,
+      run: () => actions.stopDescribing(),
+    });
+  } else {
+    if (describe.uncategorized > 0) {
+      items.push({
+        id: "describe:uncategorized",
+        label: "Describe uncategorized clippings",
+        icon: "sparkles",
+        section: "Actions",
+        detail: String(describe.uncategorized),
+        keywords: DESCRIBE_WORDS,
+        run: () => actions.describeUncategorized(),
+      });
+    }
+    if (selection.length > 0) {
+      items.push({
+        id: "describe:selected",
+        label: `Describe selected (${selection.length})`,
+        icon: "sparkles",
+        section: "Actions",
+        keywords: DESCRIBE_WORDS,
+        run: () => actions.describeSelected(selection),
+      });
+    }
+    if (describe.failed > 0) {
+      items.push({
+        id: "describe:retry",
+        label: `Retry ${describe.failed} failed`,
+        icon: "rotate-ccw",
+        section: "Actions",
+        keywords: `${DESCRIBE_WORDS} describe again`,
+        run: () => actions.retryDescribeFailed(),
+      });
+    }
+  }
+
+  if (describe.pending.length > 0) {
+    items.push({
+      id: "describe:review",
+      label: `Review suggested categories (${describe.pending.length})`,
+      icon: "list-checks",
+      section: "Actions",
+      keywords: `${DESCRIBE_WORDS} new categories approve`,
+      stage: {
+        title: "Suggested categories",
+        placeholder: "Tick the categories to keep…",
+        items: () => reviewRows(describe, actions),
+      },
+    });
+  }
+  return items;
+}
+
 export function buildCommands(context: PaletteContext): PaletteCommand[] {
   return [
     ...historyCommands(context),
     ...selectionCommands(context),
+    ...describeCommands(context),
     ...gridCommands(context),
     ...filterCommands(context),
     ...captureCommands(context),

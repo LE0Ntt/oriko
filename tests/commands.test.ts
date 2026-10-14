@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildCommands, facetValueCommands } from "../src/core/commands";
-import type { PaletteContext } from "../src/core/commands";
+import type { DescribeContext, PaletteContext } from "../src/core/commands";
 import { emptyFilter, facetDefs } from "../src/core/filter";
 
 const DEFS = facetDefs(["categories", "status"]);
@@ -29,6 +29,12 @@ const actions = {
   archiveAll: noop,
   selectAll: noop,
   resetZoom: noop,
+  describeUncategorized: noop,
+  describeSelected: noop,
+  stopDescribing: noop,
+  retryDescribeFailed: noop,
+  toggleSuggestion: noop,
+  applySuggestions: noop,
 };
 
 function context(over: Partial<PaletteContext> = {}): PaletteContext {
@@ -49,6 +55,7 @@ function context(over: Partial<PaletteContext> = {}): PaletteContext {
     filter: emptyFilter(),
     hasSystem: true,
     canExport: true,
+    describe: null,
     actions,
     ...over,
   };
@@ -425,5 +432,85 @@ describe("facetValueCommands", () => {
 
   it("offers nothing for a facet the wall carries no values for", () => {
     expect(values(context())).toEqual([]);
+  });
+});
+
+const describing = (over: Partial<DescribeContext> = {}): DescribeContext => ({
+  running: false,
+  done: 0,
+  total: 0,
+  uncategorized: 0,
+  failed: 0,
+  pending: [],
+  accepted: new Set(),
+  ...over,
+});
+
+describe("describe commands", () => {
+  it("offers nothing when Describe is unavailable", () => {
+    expect(buildCommands(context()).some((c) => c.id.startsWith("describe:"))).toBe(false);
+  });
+
+  it("offers the uncategorized run with its count, and hides it at zero", () => {
+    expect(
+      find(context({ describe: describing({ uncategorized: 180 }) }), "describe:uncategorized")?.detail
+    ).toBe("180");
+    expect(find(context({ describe: describing() }), "describe:uncategorized")).toBeUndefined();
+  });
+
+  it("describes a selection", () => {
+    let ran: string[] = [];
+    const ctx = context({
+      selection: ["a.md", "b.md"],
+      describe: describing(),
+      actions: { ...actions, describeSelected: (ids: string[]) => (ran = ids) },
+    });
+    const row = find(ctx, "describe:selected");
+    expect(row?.label).toBe("Describe selected (2)");
+    row?.run?.();
+    expect(ran).toEqual(["a.md", "b.md"]);
+  });
+
+  it("shows only Stop while a run is going", () => {
+    const ctx = context({
+      selection: ["a.md"],
+      describe: describing({ running: true, done: 23, total: 180, uncategorized: 157 }),
+    });
+    expect(find(ctx, "describe:stop")?.detail).toBe("23 of 180");
+    expect(find(ctx, "describe:uncategorized")).toBeUndefined();
+    expect(find(ctx, "describe:selected")).toBeUndefined();
+  });
+
+  it("offers a retry for failed clippings", () => {
+    expect(find(context({ describe: describing({ failed: 4 }) }), "describe:retry")?.label).toBe(
+      "Retry 4 failed"
+    );
+  });
+
+  it("opens a review stage with one row per suggested term", () => {
+    const ctx = context({
+      describe: describing({
+        pending: [
+          { term: "food", definition: "Dishes and restaurants.", count: 7 },
+          { term: "golf", definition: "Golf technique.", count: 1 },
+        ],
+        accepted: new Set(["food"]),
+      }),
+    });
+    const review = find(ctx, "describe:review");
+    expect(review?.label).toBe("Review suggested categories (2)");
+    const rows = review?.stage?.items() ?? [];
+    expect(rows.map((r) => r.id)).toEqual(["describe:term:food", "describe:term:golf", "describe:apply"]);
+    expect(rows[0].detailIcon).toBe("check");
+    expect(rows[0].keepOpen).toBe(true);
+    expect(rows[0].keywords).toBe("Dishes and restaurants.");
+    expect(rows[1].detail).toBe("1 clipping");
+    expect(rows[2].label).toBe("Apply 1 accepted");
+  });
+
+  it("names the apply row plainly when nothing is ticked", () => {
+    const ctx = context({ describe: describing({ pending: [{ term: "food", definition: "", count: 2 }] }) });
+    const rows = find(ctx, "describe:review")?.stage?.items() ?? [];
+    expect(rows[rows.length - 1].label).toBe("Keep none, use the closest existing");
   });
 });

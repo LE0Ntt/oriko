@@ -86,6 +86,9 @@ import type { PostSite } from "./core/posts";
 import { postCardMode } from "./core/settings";
 import type { ClippingRecord } from "./core/scan";
 import { steamAppId } from "./core/steam";
+import { needsDescribing } from "./core/describe";
+import type { FrontmatterWrite } from "./core/editable";
+import type { DescribeWriter } from "./describe-service";
 
 
 export const VIEW_TYPE_GRID = "oriko";
@@ -1747,6 +1750,9 @@ export class OrikoView extends ItemView {
       filter: this.activeFilter(),
       hasSystem: this.onDisk(),
       canExport: this.onDisk() || canShareFiles(navigator),
+      describe: this.plugin.describeAvailable()
+        ? this.plugin.describer.context(needsDescribing(this.plugin.index.records()).length)
+        : null,
       // Every row runs the method its context-menu equivalent runs. The two
       // surfaces list different things; neither reimplements the work.
       actions: {
@@ -1772,6 +1778,16 @@ export class OrikoView extends ItemView {
         archiveAll: () => this.plugin.archiveAllMedia(),
         selectAll: () => this.grid?.selectAll(),
         resetZoom: () => this.grid?.resetView(),
+        describeUncategorized: () =>
+          void this.plugin.describer.describe(
+            needsDescribing(this.plugin.index.records()).map((record) => record.path),
+            this.describeWriter()
+          ),
+        describeSelected: (ids) => void this.plugin.describer.describe(ids, this.describeWriter()),
+        stopDescribing: () => this.plugin.describer.stop(),
+        retryDescribeFailed: () => void this.plugin.describer.retryFailed(this.describeWriter()),
+        toggleSuggestion: (term) => this.plugin.describer.toggle(term),
+        applySuggestions: () => void this.plugin.describer.apply(this.describeWriter()),
       },
     };
   }
@@ -1898,38 +1914,74 @@ export class OrikoView extends ItemView {
   }
 
   private async setProperty(path: string, key: string, values: string[]): Promise<void> {
-    if (!isEditable(key)) {
-      new Notice(`Oriko: ${key} belongs to the clipper and is not editable`);
-      return;
+    await this.setProperties(path, { [key]: values }, true);
+  }
+
+  /**
+   * The one writer: several properties of one clipping in one
+   * processFrontMatter call. Every key passes isEditable, here and not in the
+   * callers, so a future caller cannot widen the licence by accident.
+   *
+   * A string writes a scalar, a list writes a list, and "" or [] removes the
+   * key, so the note reads the way one that never had it reads.
+   * `collapseSingles` keeps the property menu's behaviour: a one-value list on
+   * a key that is not already a list is written as a scalar.
+   *
+   * The wall is not rebuilt from here. The vault's own modify event reaches
+   * the index and the wall by the path every other edit uses, and forcing it
+   * rebuilt the whole grid on every tick. Redrawing the one tile's pills is
+   * not that: no filter re-runs and nothing moves.
+   *
+   * Resolves true when the note was written.
+   */
+  async setProperties(path: string, entries: FrontmatterWrite, collapseSingles = false): Promise<boolean> {
+    const keys = Object.keys(entries);
+    const refused = keys.find((key) => !isEditable(key));
+    if (refused) {
+      new Notice(`Oriko: ${refused} belongs to the clipper and is not editable`);
+      return false;
     }
 
     const file = this.app.vault.getAbstractFileByPath(normalizePath(path));
-    if (!(file instanceof TFile)) return;
+    if (!(file instanceof TFile)) return false;
 
     try {
       await this.app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
-        // An emptied property is removed rather than written as an empty
-        // list, so the note reads the way one that never had the key reads.
-        if (values.length === 0) delete fm[key];
-        else if (values.length === 1 && !Array.isArray(fm[key])) fm[key] = values[0];
-        else fm[key] = values;
+        for (const key of keys) {
+          const value = entries[key];
+          if (typeof value === "string") {
+            if (value === "") delete fm[key];
+            else fm[key] = value;
+          } else if (value.length === 0) delete fm[key];
+          else if (collapseSingles && value.length === 1 && !Array.isArray(fm[key])) fm[key] = value[0];
+          else fm[key] = value;
+        }
         fm.updated = todayISO();
       });
       // The tile's pills say what the note says, so they are redrawn the
-      // moment the note says something else. Here rather than in the caller,
-      // so a key the gate above refused, or a write that threw, never paints
-      // a value the note does not have. The tile id is the note's path.
-      this.grid?.setRecordProperty(path, key, values);
+      // moment the note says something else. Here, after the write, so a
+      // refused key or a write that threw never paints a value the note does
+      // not have. The tile id is the note's path.
+      for (const key of keys) {
+        const value = entries[key];
+        this.grid?.setRecordProperty(path, key, typeof value === "string" ? (value ? [value] : []) : value);
+      }
+      return true;
     } catch (error) {
-      new Notice(`Oriko: could not update ${key} (${String(error)})`);
+      new Notice(`Oriko: could not update ${keys.join(", ")} (${String(error)})`);
       // The menu is showing a value the note does not have. Drop it so the
       // next rebuild tells the truth.
-      this.edited.delete(this.editKey(path, key));
+      for (const key of keys) this.edited.delete(this.editKey(path, key));
+      return false;
     }
-    // The wall is not rebuilt from here. The vault's own modify event reaches
-    // the index and the wall by the path every other edit uses, and forcing
-    // it rebuilt the whole grid on every tick. Redrawing the one tile's pills
-    // above is not that: no filter re-runs and nothing moves.
+  }
+
+  /** Describe's way in to the one writer and this view's undo history. */
+  private describeWriter(): DescribeWriter {
+    return {
+      write: (path, values) => this.setProperties(path, values),
+      record: (entry) => this.history.push(entry),
+    };
   }
 
   /**

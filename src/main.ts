@@ -38,6 +38,8 @@ import { ConfirmSweepModal } from "./confirm";
 import { findOrphans, removeMedia, staleKeys } from "./sweep";
 import { OrikoSettingTab } from "./settings-tab";
 import { OrikoView, VIEW_TYPE_GRID } from "./view";
+import { ClaudeCodeEngine, claudeAvailable } from "./claude-engine";
+import { DescribeService } from "./describe-service";
 
 export default class OrikoPlugin extends Plugin {
   settings: OrikoSettings = DEFAULT_SETTINGS;
@@ -46,6 +48,7 @@ export default class OrikoPlugin extends Plugin {
   steam!: SteamService;
   posts!: PostService;
   capture!: CaptureService;
+  describer!: DescribeService;
   /** The last shared file this device wrote, to recognise its own echo. */
   private wroteShared = "";
   private archiveTimer = 0;
@@ -114,6 +117,17 @@ export default class OrikoPlugin extends Plugin {
       () => this.index.records()
     );
     await this.posts.load();
+    this.describer = new DescribeService(
+      this.app,
+      new ClaudeCodeEngine(),
+      this.manifest.dir ?? `${this.app.vault.configDir}/plugins/oriko`,
+      () => this.index.records(),
+      (path) => this.index.get(path),
+      () => this.archiver.cache
+    );
+    await this.describer.load();
+    // A run still going when the plugin unloads would keep Claude Code processes alive.
+    this.register(() => this.describer.stop());
     this.register(() => window.clearTimeout(this.steamTimer));
     // Prices move while Obsidian stays open for days. The pass asks only
     // about games whose answer is a day old, so an hourly look costs nothing.
@@ -510,6 +524,11 @@ export default class OrikoPlugin extends Plugin {
 
     this.registerEvent(this.app.vault.on("modify", (file) => void reread(file.path)));
     this.registerEvent(this.app.vault.on("create", (file) => void reread(file.path)));
+  }
+
+  /** Describe is offered on desktop, when switched on, and once Claude Code is found. */
+  describeAvailable(): boolean {
+    return this.settings.describeEnabled && Platform.isDesktopApp && claudeAvailable();
   }
 
   async loadSettings(): Promise<void> {
