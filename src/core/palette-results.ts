@@ -197,11 +197,25 @@ export function keepCursor(keys: readonly string[], key: string): number {
   return index === -1 ? 0 : index;
 }
 
-/** The clip panel, the gap, the palette and the margins: below this the panel is not shown. */
-export const PANEL_ROOM = 400 + 14 + 620 + 32;
+const PANEL_MAX = 400;
+const PANEL_MIN = 240;
+const PALETTE_MAX = 620;
+const PALETTE_MIN = 360;
+const PAIR_GAP = 14;
+const PANE_MARGIN = 32;
 
-export function panelFits(width: number): boolean {
-  return width >= PANEL_ROOM;
+/**
+ * How the clip panel and the palette share a pane: the panel takes about
+ * two fifths, within 240 to 400 px, and the palette the rest, up to its usual
+ * 620. Null when the palette would drop below 360, which leaves the clip to
+ * the chip. A fixed 1,066 px threshold once hid the panel in a half-screen
+ * window, the size the review is most often used at.
+ */
+export function panelLayout(width: number): { panel: number; palette: number } | null {
+  const room = width - PANE_MARGIN - PAIR_GAP;
+  const panel = Math.min(PANEL_MAX, Math.max(PANEL_MIN, Math.round(room * 0.4)));
+  const palette = Math.min(PALETTE_MAX, room - panel);
+  return palette < PALETTE_MIN ? null : { panel, palette };
 }
 
 const CHIP_CLIP_LIMIT = 40;

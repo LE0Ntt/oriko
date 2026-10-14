@@ -4,7 +4,7 @@ import type { PaletteCommand, PaletteStage } from "./core/commands";
 import { subjectSummary } from "./core/describe";
 import { ClipPanel } from "./clip-panel";
 import type { ClipMedia } from "./clip-panel";
-import { keepCursor, panelFits, resumeIndex, searchPalette, stageChip } from "./core/palette-results";
+import { keepCursor, panelLayout, resumeIndex, searchPalette, stageChip } from "./core/palette-results";
 import type { PaletteRow, SearchOptions } from "./core/palette-results";
 import type { MatchRange } from "./core/palette-search";
 import type { ClippingRecord } from "./core/scan";
@@ -463,12 +463,16 @@ export class Palette {
     const path = subject[this.subjectIndex];
     const byPath = new Map(this.handlers.clippings().map((record) => [record.path, record]));
     const record = byPath.get(path);
-    const show = panelFits(this.width);
-    panel.toggleClass("has-clip-panel", show);
-    if (!show) {
+    const layout = panelLayout(this.width);
+    panel.toggleClass("has-clip-panel", layout !== null);
+    if (!layout) {
       clipPanel.hide();
       return record?.title ?? path;
     }
+    this.container.setCssProps({
+      "--pg-pair-panel": `${layout.panel}px`,
+      "--pg-pair-palette": `${layout.palette}px`,
+    });
     let badge = stage.position ?? "";
     if (!stage.position && subject.length > 1) {
       const summary = subjectSummary(subject, (p) => byPath.get(p));

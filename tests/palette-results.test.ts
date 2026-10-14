@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { keepCursor, panelFits, resumeIndex, searchPalette, stageChip } from "../src/core/palette-results";
+import { keepCursor, panelLayout, resumeIndex, searchPalette, stageChip } from "../src/core/palette-results";
 import type { PaletteCommand } from "../src/core/commands";
 import type { ClippingRecord } from "../src/core/scan";
 
@@ -190,10 +190,20 @@ describe("keepCursor", () => {
   });
 });
 
-describe("panelFits", () => {
-  it("needs room for the panel, the gap, the palette and the margins", () => {
-    expect(panelFits(1066)).toBe(true);
-    expect(panelFits(1065)).toBe(false);
+describe("panelLayout", () => {
+  it("gives a wide pane the full panel and palette", () => {
+    expect(panelLayout(1512)).toEqual({ panel: 400, palette: 620 });
+    expect(panelLayout(1066)).toEqual({ panel: 400, palette: 620 });
+  });
+
+  it("shares a narrower pane between the two", () => {
+    // About the width of a half-screen Obsidian window.
+    expect(panelLayout(770)).toEqual({ panel: 290, palette: 434 });
+  });
+
+  it("keeps both usable down to the floor, then gives up", () => {
+    expect(panelLayout(646)).toEqual({ panel: 240, palette: 360 });
+    expect(panelLayout(640)).toBeNull();
   });
 });
 

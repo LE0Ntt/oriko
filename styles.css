@@ -2045,7 +2045,8 @@
 /* Room for the clip panel: the palette moves right of centre and the panel
    takes the space to its left, so the pair sits centred together. */
 .pg-palette.has-clip-panel {
-  left: calc(50% + 207px);
+  width: var(--pg-pair-palette, 620px);
+  left: calc(50% + (var(--pg-pair-panel, 400px) + 14px) / 2);
 }
 
 /* The clip a stage is about: its media playing, its title and labels. */
@@ -2053,8 +2054,8 @@
   position: absolute;
   z-index: 45;
   top: 14vh;
-  left: calc(50% - 517px);
-  width: 400px;
+  left: calc(50% - (var(--pg-pair-panel, 400px) + 14px + var(--pg-pair-palette, 620px)) / 2);
+  width: var(--pg-pair-panel, 400px);
   display: none;
   flex-direction: column;
   gap: 8px;
