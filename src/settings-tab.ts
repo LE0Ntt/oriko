@@ -254,6 +254,16 @@ export class OrikoSettingTab extends PluginSettingTab {
             desc: "Where ffmpeg lives, which makes previews for anything Obsidian cannot play. Leave it empty and Oriko goes looking the same way.",
             control: { type: "text", key: "ffmpegPath" },
           },
+          {
+            name: "Describe with Claude Code",
+            desc: "Adds Describe to the palette on desktop. It sends a clipping's picture and note text to your own Claude Code install, which uses your Claude subscription, and writes back categories, a caption and the text in the picture.",
+            control: { type: "toggle", key: "describeEnabled" },
+          },
+          {
+            name: "Claude Code path",
+            desc: "Where Claude Code lives. Leave it empty and Oriko goes looking the same way.",
+            control: { type: "text", key: "claudePath" },
+          },
         ],
       },
       {

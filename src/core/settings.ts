@@ -116,6 +116,10 @@ export interface OrikoSettings {
   ytdlpPath: string;
   /** Full path to ffmpeg, "" to discover it on PATH and in common installs. */
   ffmpegPath: string;
+  /** Whether the palette offers Describe, which runs the user's own Claude Code. */
+  describeEnabled: boolean;
+  /** Full path to Claude Code, "" to discover it on PATH and in common installs. */
+  claudePath: string;
 }
 
 export const DEFAULT_SETTINGS: OrikoSettings = {
@@ -146,4 +150,6 @@ export const DEFAULT_SETTINGS: OrikoSettings = {
   youtubeCards: "always",
   ytdlpPath: "",
   ffmpegPath: "",
+  describeEnabled: false,
+  claudePath: "",
 };

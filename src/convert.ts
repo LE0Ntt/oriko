@@ -24,9 +24,9 @@ const TIMEOUT_MS = 30000;
  * functions are called from deep inside conversion helpers that have no
  * settings in reach; main.ts sets this on load and on every settings change.
  */
-let toolOverrides = { ytdlp: "", ffmpeg: "" };
+let toolOverrides = { ytdlp: "", ffmpeg: "", claude: "" };
 
-export function setToolOverrides(next: { ytdlp: string; ffmpeg: string }): void {
+export function setToolOverrides(next: { ytdlp: string; ffmpeg: string; claude: string }): void {
   toolOverrides = next;
 }
 
@@ -207,6 +207,23 @@ export async function extractVideoFrame(
 
 export function ytdlpPath(): string | null {
   return toolPath("yt-dlp", toolOverrides.ytdlp);
+}
+
+/**
+ * Where Claude Code lives. Its native installer links ~/.local/bin/claude,
+ * which the shared fixed candidates already cover; the older local install
+ * sits in ~/.claude/local.
+ */
+export function claudePath(): string | null {
+  const home = hostProcess()?.env?.HOME;
+  const fixed = [...fixedCandidates("claude"), ...(home ? [`${home}/.claude/local/claude`] : [])];
+  return firstExisting(executableCandidates("claude", toolEnv(), fixed, toolOverrides.claude));
+}
+
+/** The desktop session's environment and PATH separator, for starting a tool. */
+export function hostEnv(): { env: Record<string, string | undefined>; delimiter: string } {
+  const proc = hostProcess();
+  return { env: { ...(proc?.env ?? {}) }, delimiter: proc?.platform === "win32" ? ";" : ":" };
 }
 
 interface CapturedRun {

@@ -532,7 +532,11 @@ export default class OrikoPlugin extends Plugin {
     for (const key of ["instagramCards", "threadsCards", "youtubeCards"] as const) {
       if (!isCardMode(this.settings[key])) this.settings[key] = this.settings.xCards;
     }
-    setToolOverrides({ ytdlp: this.settings.ytdlpPath, ffmpeg: this.settings.ffmpegPath });
+    setToolOverrides({
+      ytdlp: this.settings.ytdlpPath,
+      ffmpeg: this.settings.ffmpegPath,
+      claude: this.settings.claudePath,
+    });
   }
 
   async saveSettings(): Promise<void> {
@@ -544,7 +548,11 @@ export default class OrikoPlugin extends Plugin {
     }
     await this.saveData(local);
     await this.writeShared();
-    setToolOverrides({ ytdlp: this.settings.ytdlpPath, ffmpeg: this.settings.ffmpegPath });
+    setToolOverrides({
+      ytdlp: this.settings.ytdlpPath,
+      ffmpeg: this.settings.ffmpegPath,
+      claude: this.settings.claudePath,
+    });
 
     // Saving is also how an open wall hears about it. Every caller of this
     // already means "the settings have changed", so there is no second thing
