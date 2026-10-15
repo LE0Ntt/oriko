@@ -41,6 +41,7 @@ import { OrikoView, VIEW_TYPE_GRID } from "./view";
 import { ApiKeyEngine } from "./api-engine";
 import { ClaudeCodeEngine, claudeAvailable } from "./claude-engine";
 import { SwitchingEngine, effectiveEngine, engineReady } from "./core/engines";
+import { API_KEY_SECRET } from "./core/engines";
 import type { EngineKind } from "./core/engines";
 import { DescribeService } from "./describe-service";
 
@@ -555,9 +556,7 @@ export default class OrikoPlugin extends Plugin {
 
   /** The user's Anthropic API key, from Obsidian's keychain on this device. */
   describeKey(): string | null {
-    const name = this.settings.describeKeySecret;
-    const key = name ? this.app.secretStorage.getSecret(name) : null;
-    return key?.trim() || null;
+    return this.app.secretStorage.getSecret(API_KEY_SECRET)?.trim() || null;
   }
 
   async loadSettings(): Promise<void> {

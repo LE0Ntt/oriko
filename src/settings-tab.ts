@@ -1,7 +1,8 @@
-import { AbstractInputSuggest, App, Platform, PluginSettingTab, SecretComponent, Setting } from "obsidian";
+import { AbstractInputSuggest, App, Platform, PluginSettingTab, Setting } from "obsidian";
 import type { SettingDefinitionItem } from "obsidian";
 import { slotCandidates, surveyProperties } from "./core/facet-catalog";
 import { facetLabel } from "./core/filter";
+import { API_KEY_SECRET } from "./core/engines";
 import { isCardMode } from "./core/settings";
 import { hostEnv } from "./convert";
 import { OrikoView, VIEW_TYPE_GRID } from "./view";
@@ -289,17 +290,18 @@ export class OrikoSettingTab extends PluginSettingTab {
           },
           {
             name: "Anthropic API key",
-            desc: "A key from the Claude Console, linked from Obsidian's keychain.",
+            desc: "A key from the Claude Console, kept in Obsidian's keychain.",
             visible: () => this.describing("api-key"),
             render: (setting) => {
-              setting.addComponent((el) =>
-                new SecretComponent(this.app, el)
-                  .setValue(this.plugin.settings.describeKeySecret)
-                  .onChange(async (name) => {
-                    this.plugin.settings.describeKeySecret = name;
-                    await this.plugin.saveSettings();
-                  })
-              );
+              // Pasted straight into the keychain, under Oriko's own name, so
+              // there is nothing to name first and nothing lands in data.json.
+              setting.addText((text) => {
+                text.inputEl.type = "password";
+                text
+                  .setPlaceholder("Paste your key")
+                  .setValue(this.app.secretStorage.getSecret(API_KEY_SECRET) ?? "")
+                  .onChange((value) => this.app.secretStorage.setSecret(API_KEY_SECRET, value.trim()));
+              });
             },
           },
         ],

@@ -9,6 +9,12 @@ import type { DescribeEngine } from "./describe-run";
 
 export type EngineKind = "claude-code" | "api-key";
 
+/**
+ * Where the user's Anthropic API key is kept: Obsidian's keychain, under a
+ * name of Oriko's own, so the key never enters data.json, which syncs.
+ */
+export const API_KEY_SECRET = "oriko-anthropic-api-key";
+
 /** The engine in force. Until the user picks one, Claude Code when it is installed. */
 export function effectiveEngine(chosen: EngineKind | "", claudeFound: boolean): EngineKind {
   if (chosen) return chosen;
