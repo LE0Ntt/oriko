@@ -257,14 +257,14 @@ export class OrikoSettingTab extends PluginSettingTab {
           },
           {
             name: "Describe clippings",
-            desc: "Adds Describe to the palette. Describe sends a clipping's picture and note text to Claude and writes back categories, a caption and the text in the picture.",
+            desc: "Labels clippings with Claude, from the palette.",
             aliases: ["claude", "ai", "caption", "labels"],
             visible: () => Platform.isDesktopApp,
             control: { type: "toggle", key: "describeEnabled" },
           },
           {
             name: "Describe engine",
-            desc: "Whose Claude does the work. Either way it is your own: you pay Anthropic directly, and Oriko never sees your login.",
+            desc: "Runs on your own Claude, billed by Anthropic.",
             visible: () => this.describing(),
             control: {
               type: "dropdown",
@@ -277,19 +277,19 @@ export class OrikoSettingTab extends PluginSettingTab {
           },
           {
             name: "Claude Code path",
-            desc: "Describe runs the Claude Code you installed and signed into, so it counts against your own Claude plan, and Anthropic may count it as third-party app usage. Leave the path empty and Oriko goes looking the same way.",
+            desc: "Leave it empty and Oriko goes looking.",
             visible: () => this.describing("claude-code"),
             control: { type: "text", key: "claudePath" },
           },
           {
             name: "Use my Claude login",
-            desc: "Obsidian started with an ANTHROPIC_API_KEY, which Claude Code bills ahead of your Claude login. Turn this on to have Describe use your Claude plan.",
+            desc: "Bill your Claude plan, not the ANTHROPIC_API_KEY Obsidian started with.",
             visible: () => this.describing("claude-code") && Boolean(hostEnv().env.ANTHROPIC_API_KEY),
             control: { type: "toggle", key: "describePreferLogin" },
           },
           {
             name: "Anthropic API key",
-            desc: "Describe calls Claude Haiku with your own key from the Claude Console, billed to your API account. Link it from Obsidian's keychain, or add it there; it stays out of Oriko's settings file, which syncs with the vault.",
+            desc: "A key from the Claude Console, linked from Obsidian's keychain.",
             visible: () => this.describing("api-key"),
             render: (setting) => {
               setting.addComponent((el) =>
