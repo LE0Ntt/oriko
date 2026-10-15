@@ -268,9 +268,7 @@ export class OrikoSettingTab extends PluginSettingTab {
           },
           {
             name: "Describe engine",
-            desc: this.offersCloud()
-              ? "Your own Claude, billed by Anthropic, or Oriko Cloud by subscription."
-              : "Runs on your own Claude, billed by Anthropic.",
+            desc: this.offersCloud() ? "Your own Claude, or Oriko Cloud." : "Runs on your own Claude.",
             visible: () => this.describing(),
             control: {
               type: "dropdown",
