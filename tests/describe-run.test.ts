@@ -59,6 +59,7 @@ function harness(
     prepare?: (path: string, id: number) => Promise<DescribeJob | null>;
     write?: (path: string, values: FrontmatterWrite) => Promise<boolean>;
     cancelAll?: () => void;
+    concurrency?: number;
   } = {}
 ): Harness {
   const events: string[] = [];
@@ -110,7 +111,7 @@ function harness(
       finished: (summary) => notices.push(`Oriko: ${summaryText(summary)}`),
       notify: (text) => notices.push(text),
     },
-    { batchSize: 1, concurrency: 1, rateLimitWaitMs: 0, batchTimeoutMs: 1000, singleTimeoutMs: 1000 }
+    { batchSize: 1, concurrency: options.concurrency ?? 1, rateLimitWaitMs: 0, batchTimeoutMs: 1000, singleTimeoutMs: 1000 }
   );
   const writer: DescribeWriter = {
     write:
@@ -194,6 +195,41 @@ describe("DescribeRunner", () => {
       expect(h.events.filter((e) => e.startsWith("run:"))).toHaveLength(1);
       expect(h.notices.at(-1)).toBe(HALTS[failure]);
     }
+  });
+
+  it("keeps a batch already on its way when another lane halts the run, since it was paid for", async () => {
+    const h = harness({
+      paths: ["a.md", "b.md"],
+      concurrency: 2,
+      run: async (jobs) => {
+        if (jobs[0].path === "a.md") {
+          await new Promise((resolve) => setTimeout(resolve, 5));
+          return { ok: false, failure: "allowance-used", message: "used" };
+        }
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        return { ok: true, results: jobs.map((job) => answer(job.id)) };
+      },
+    });
+    await h.runner.describe(["a.md", "b.md"], h.writer);
+    expect(h.written.map(([path]) => path)).toEqual(["b.md"]);
+    expect(h.notices.at(-1)).toBe(HALTS["allowance-used"]);
+  });
+
+  it("drops a batch on its way when the user stops the run", async () => {
+    let release: () => void = () => undefined;
+    const h = harness({
+      paths: ["a.md"],
+      run: (jobs) =>
+        new Promise((resolve) => {
+          release = () => resolve({ ok: true, results: jobs.map((job) => answer(job.id)) });
+        }),
+    });
+    const done = h.runner.describe(["a.md"], h.writer);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    h.runner.stop();
+    release();
+    await done;
+    expect(h.written).toEqual([]);
   });
 
   it("doesn't blame Claude for a limit Oriko Cloud may have set", () => {

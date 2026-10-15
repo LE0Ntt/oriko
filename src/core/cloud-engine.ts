@@ -18,6 +18,15 @@ export const CLOUD_PROTOCOL = 1;
 export const LICENSE_SECRET = "oriko-cloud-license";
 /** Obsidian local storage key for this device's install id. */
 export const INSTALL_KEY = "oriko-cloud-install";
+/** The server's cap on one picture, in base64 characters. */
+export const CLOUD_IMAGE_MAX = 1_000_000;
+
+/** A whole Polar license key: an uppercase UUID, with the benefit's prefix in front when set. */
+const KEY_SHAPE = /^(?:[A-Z0-9_]{1,32}-)?[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$/i;
+
+export function looksLikeKey(key: string): boolean {
+  return KEY_SHAPE.test(key.trim());
+}
 
 export interface CloudUsage {
   month: string;
@@ -48,7 +57,16 @@ export function cloudBody(jobs: DescribeJob[], vocabulary: string[], depth: Dept
     protocol: CLOUD_PROTOCOL,
     depth,
     vocabulary,
-    jobs: jobs.map(({ id, image, title, description, domain, body }) => ({ id, image, title, description, domain, body })),
+    // A picture past the server's cap would fail the whole batch; that clip
+    // is described from its text instead.
+    jobs: jobs.map(({ id, image, title, description, domain, body }) => ({
+      id,
+      image: image && image.length <= CLOUD_IMAGE_MAX ? image : null,
+      title,
+      description,
+      domain,
+      body,
+    })),
   };
 }
 

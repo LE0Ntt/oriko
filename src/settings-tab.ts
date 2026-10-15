@@ -3,7 +3,7 @@ import type { SettingDefinitionItem } from "obsidian";
 import { slotCandidates, surveyProperties } from "./core/facet-catalog";
 import { facetLabel } from "./core/filter";
 import type { CloudStatus } from "./cloud-engine";
-import { CLOUD_CHECKOUT, CLOUD_LAUNCHED, LICENSE_SECRET, usageLine } from "./core/cloud-engine";
+import { CLOUD_CHECKOUT, CLOUD_LAUNCHED, LICENSE_SECRET, looksLikeKey, usageLine } from "./core/cloud-engine";
 import { API_KEY_SECRET } from "./core/engines";
 import type { EngineKind } from "./core/engines";
 import { isCardMode } from "./core/settings";
@@ -481,9 +481,17 @@ export class OrikoSettingTab extends PluginSettingTab {
     return CLOUD_LAUNCHED || this.plugin.settings.describeEngine === "oriko-cloud";
   }
 
-  /** Checks a pasted key once typing stops, so each keystroke is not a call to the server. */
+  /**
+   * Checks a pasted key once typing stops and the key is whole, so neither a
+   * keystroke nor a half-typed key costs a call to the server.
+   */
   private scheduleCloudCheck(): void {
     window.clearTimeout(this.cloudTimer);
+    const key = this.plugin.cloudLicense() ?? "";
+    if (key && !looksLikeKey(key)) {
+      this.cloudSetting?.setDesc("That doesn't look like a whole license key yet.");
+      return;
+    }
     this.cloudTimer = window.setTimeout(() => {
       this.cloudKnown = null;
       if (this.cloudSetting) void this.paintCloudStatus(this.cloudSetting);

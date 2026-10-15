@@ -163,7 +163,10 @@ function entry(label: string, written: Written[], writer: DescribeWriter): Histo
 
 export class DescribeRunner {
   private running = false;
+  /** No new batches start: the user stopped the run, or it halted on a problem. */
   private stopped = false;
+  /** The user stopped the run: work on its way is dropped too. */
+  private cancelled = false;
   private halted: string | null = null;
   private done = 0;
   private total = 0;
@@ -223,6 +226,7 @@ export class DescribeRunner {
     this.request = { depth: request.depth ?? "standard", selected: request.selected ?? false };
     this.running = true;
     this.stopped = false;
+    this.cancelled = false;
     this.halted = null;
     this.done = 0;
     this.total = paths.length;
@@ -270,6 +274,7 @@ export class DescribeRunner {
   stop(): void {
     if (!this.running) return;
     this.stopped = true;
+    this.cancelled = true;
     this.deps.engine.cancelAll();
   }
 
@@ -391,10 +396,14 @@ export class DescribeRunner {
     this.tick(path, { step: "failed" });
   }
 
+  /**
+   * Stops the run on a problem. Nothing new starts, but batches already on
+   * their way are left to land: their clips were sent and, on Oriko Cloud,
+   * paid for, so throwing their answers away would waste them.
+   */
   private halt(reason: Halt): void {
     this.halted ??= HALTS[reason];
     this.stopped = true;
-    this.deps.engine.cancelAll();
   }
 
   private async jobsFor(paths: string[]): Promise<DescribeJob[]> {
@@ -453,7 +462,15 @@ export class DescribeRunner {
     for (const job of jobs) this.deps.status(job.path, { step: "describing" });
     const timeout = jobs.length > 1 ? this.options.batchTimeoutMs : this.options.singleTimeoutMs;
     const outcome = await this.runJobs(jobs, vocabulary, timeout);
-    if (this.stopped) return;
+    if (this.cancelled) return;
+    // Halted while this batch was out: keep what came back, start nothing more.
+    if (this.stopped) {
+      if (outcome.ok) {
+        const { matched } = matchResults(jobs, outcome.results);
+        for (const [job, raw] of matched) await this.accept(job.path, raw, vocabulary, writer, written);
+      }
+      return;
+    }
     if (!outcome.ok && outcome.failure === "batch-lost") {
       // Retrying singly would pay for the same clips again; Retry failed
       // picks them up later, at no cost if the lost batch was refunded.

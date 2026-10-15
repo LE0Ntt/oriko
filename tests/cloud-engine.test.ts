@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cloudBody, cloudOutcome, installLabel, usageLine } from "../src/core/cloud-engine";
+import { CLOUD_IMAGE_MAX, cloudBody, cloudOutcome, installLabel, looksLikeKey, usageLine } from "../src/core/cloud-engine";
 import type { DescribeJob } from "../src/core/claude-engine";
 
 const job = (over: Partial<DescribeJob> = {}): DescribeJob => ({
@@ -27,6 +27,23 @@ describe("cloudBody", () => {
         { id: 1, image: null, title: "A", description: "", domain: "example.com", body: "" },
       ],
     });
+  });
+});
+
+describe("cloudBody limits", () => {
+  it("sends a picture past the server's cap as no picture, so one clip can't sink its batch", () => {
+    const body = cloudBody([job({ image: "/9j/" + "A".repeat(CLOUD_IMAGE_MAX) })], [], "standard");
+    expect(body.jobs[0].image).toBeNull();
+    expect(CLOUD_IMAGE_MAX).toBe(1_000_000);
+  });
+});
+
+describe("looksLikeKey", () => {
+  it("knows a whole license key from a half-typed one", () => {
+    expect(looksLikeKey("ORIKO-1C285B2D-6CE6-4BC7-B8BE-ADB6A7E304DA")).toBe(true);
+    expect(looksLikeKey("1c285b2d-6ce6-4bc7-b8be-adb6a7e304da")).toBe(true);
+    expect(looksLikeKey("ORIKO-1C285B2D-6CE6")).toBe(false);
+    expect(looksLikeKey("")).toBe(false);
   });
 });
 
