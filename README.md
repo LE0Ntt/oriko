@@ -76,10 +76,10 @@ A pasted screenshot or a reel with no caption is hard to find again. **Describe*
 
 Describe runs on your own Claude, and you pick which:
 
-- **Claude Code on this computer.** Describe runs the Claude Code you installed and signed into, so it counts against your own Claude plan. Anthropic may count it as third-party app usage. Oriko never sees your login.
-- **Anthropic API key.** Describe calls Claude Haiku with a key from the [Claude Console](https://platform.claude.com), billed to your API account: at Haiku's prices, roughly a dollar per 5,000 clippings. Paste the key in settings; it is kept in Obsidian's keychain, never in Oriko's settings file.
+- **Claude Code on this computer.** Describe runs the Claude Code you installed and signed into. Anthropic may count it as third-party app usage. Oriko never sees your login.
+- **Anthropic API key.** Describe calls Claude Haiku with a key from the [Claude Console](https://platform.claude.com). Paste the key in settings; it is kept in Obsidian's keychain, never in Oriko's settings file.
 
-Either way you pay Anthropic directly, and Oriko takes nothing. Oriko is independent of Anthropic.
+Oriko is independent of Anthropic.
 
 ## Downloads
 
