@@ -138,7 +138,9 @@ export class OrikoCloudEngine implements DescribeEngine {
     const activated = await this.account.activate();
     if (!activated.ok) return { ok: false, failure: activated.failure, message: activated.message };
     const second = await this.describe(jobs, vocabulary, timeoutMs, depth);
-    return second === "not-activated" ? { ok: false, failure: "error", message: "Oriko Cloud did not take the activation" } : second;
+    // Still settling on the server: waited out and tried again like a rate
+    // limit, never retried clip by clip, which would only fail ten times over.
+    return second === "not-activated" ? { ok: false, failure: "rate-limit", message: "Oriko Cloud is still activating this device" } : second;
   }
 
   private async describe(
