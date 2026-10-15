@@ -5,6 +5,18 @@ All notable changes to Oriko will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.69] - 2026-10-15
+
+### Added
+- **Describe labels your clippings for you.** Turn it on in Settings → Oriko → Describe clippings (desktop only for now), then press ⌘K and choose Describe uncategorized, or select some tiles and choose Describe. It looks at each picture, or a handful of frames from a video, along with the note's text, and writes categories, a one-line caption and any text in the picture into the note's properties. The palette searches all of that, so a screenshot called "Pasted image 2026-08-18" turns up when you type what's in it.
+- **Describe runs on your own Claude.** Settings → Oriko → Describe engine picks Claude Code on this computer, which counts against your Claude plan, or an Anthropic API key, billed to your API account (at Haiku's prices, roughly a dollar per 5,000 clippings). Either way you pay Anthropic directly and Oriko takes nothing. Keep in mind Anthropic may count Claude Code use from Oriko as third-party app usage, and that a clipping's picture and note text go to Anthropic when you run Describe.
+- **You choose how specific the labels get.** Each run asks first: Broad sticks to your wall's most general categories, Standard is the everyday pick, and Specific can name the thing itself (a projector, say), up to six labels. Running Describe again on clippings that already have labels only adds to them.
+- **New categories wait for your OK.** When Describe wants a category your wall doesn't have yet, it goes into Review suggestions in the palette. Review plays each clip beside the palette so you can see what you're approving: ↵ ticks a label, Tab moves to the next clip, Shift-⌫ throws out this clip's suggestions, and Apply writes only the clips you've looked at.
+- **You can watch a run happen.** Each clip on the wall shows what it's up to (Picking frames, Reading picture, Describing), and its new labels pop on as it lands. The rest of the wall dims so you can see where the work is, and the bar at the bottom counts along (Describing 12 of 84) before signing off with a summary. Click it for Stop and Review.
+
+### Changed
+- **The palette is tidier.** What you can do is grouped under Selection, Describe, Grids, Filters, Edit and Capture, the rows are shorter, and clippings only show up once you start typing. The old, longer names still find their rows, and Archive all clipping media is now just Archive media.
+
 ## [0.1.68] - 2026-10-07
 
 ### Fixed
