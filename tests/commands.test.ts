@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildCommands, facetValueCommands } from "../src/core/commands";
 import type { DescribeContext, PaletteContext, ReviewView } from "../src/core/commands";
 import { emptyFilter, facetDefs } from "../src/core/filter";
+import { searchPalette } from "../src/core/palette-results";
 
 const DEFS = facetDefs(["categories", "status"]);
 
@@ -633,6 +634,23 @@ describe("describe commands", () => {
       "describe:discard-all",
     ]);
     expect(rows[3].detail).toBe("5 labels · 12 clips");
+  });
+
+  it("still finds the Describe rows by their old, longer names", () => {
+    const ctx = context({
+      selection: ["a.md"],
+      describe: describing({ uncategorized: ["b.md"], review: reviewing() }),
+    });
+    const top = (query: string) =>
+      searchPalette(query, buildCommands(ctx), [], [], {
+        limit: 0,
+        activeGrid: "Clippings",
+        homeGrid: "Clippings",
+        registered: new Set(),
+      })[0]?.rows[0]?.key;
+    expect(top("describe selected")).toBe("describe:selected");
+    expect(top("review suggested categories")).toBe("describe:review");
+    expect(top("describe uncategorized clippings")).toBe("describe:uncategorized");
   });
 
   it("hides the review while a run is going", () => {

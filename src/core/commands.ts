@@ -319,7 +319,8 @@ function selectionCommands(context: PaletteContext): PaletteCommand[] {
       icon: "sparkles",
       section: "Selection",
       detail: one ? undefined : count,
-      keywords: DESCRIBE_WORDS,
+      // The row's old name, so typing it still finds the row.
+      keywords: `describe selected ${DESCRIBE_WORDS}`,
       stage: depthStage("Describe selected", selection, (depth) => actions.describeSelected(selection, depth)),
     });
   }
@@ -707,7 +708,7 @@ function describeCommands(context: PaletteContext): PaletteCommand[] {
         icon: "sparkles",
         section: "Describe",
         detail: String(describe.uncategorized.length),
-        keywords: DESCRIBE_WORDS,
+        keywords: `describe uncategorized clippings ${DESCRIBE_WORDS}`,
         stage: depthStage("Describe uncategorized", describe.uncategorized, (depth) =>
           actions.describeUncategorized(depth)
         ),
@@ -734,7 +735,7 @@ function describeCommands(context: PaletteContext): PaletteCommand[] {
       icon: "list-checks",
       section: "Describe",
       detail: count(describe.review.total, "clip", "clips"),
-      keywords: `${DESCRIBE_WORDS} new categories approve`,
+      keywords: `review suggested categories ${DESCRIBE_WORDS} new approve`,
       stage: reviewStage(describe.review, actions),
     });
   }
