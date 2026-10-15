@@ -64,6 +64,8 @@ export type EngineFailure =
   | "allowance-used"
   /** Oriko Cloud cannot take work right now. */
   | "cloud-unavailable"
+  /** Oriko Cloud couldn't read what this version of Oriko sent. */
+  | "cloud-refused"
   /**
    * The batch went out but no answer came back in time. The server may still
    * finish and charge it, so its clips fail without being retried one by one.
@@ -180,7 +182,7 @@ function instructions(vocabulary: string[], depth: Depth): string {
     ...LABEL_RULES[depth],
     "- fallback: the single closest existing category, or an empty string when there are none.",
     "- caption: one sentence describing what the clip shows; never mention frames or a grid.",
-    "- media_text: the legible text in the media, verbatim, condensed to the meaningful lines, or an empty string when there is none.",
+    "- media_text: the legible text in the media, verbatim, condensed to the meaningful lines, at most 1,000 characters, or an empty string when there is none.",
   ].join("\n");
 }
 

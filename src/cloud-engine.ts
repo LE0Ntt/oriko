@@ -1,5 +1,5 @@
 import { requestUrl } from "obsidian";
-import { CLOUD_BASE, cloudBody, cloudOutcome } from "./core/cloud-engine";
+import { ActivationGate, CLOUD_BASE, cloudBody, cloudOutcome } from "./core/cloud-engine";
 import type { CloudUsage } from "./core/cloud-engine";
 import type { Depth, DescribeJob, EngineFailure, RunOutcome } from "./core/claude-engine";
 import type { DescribeEngine } from "./core/describe-run";
@@ -128,14 +128,24 @@ function status(answer: Answer): CloudStatus {
 
 export class OrikoCloudEngine implements DescribeEngine {
   private cancels = new Set<(error: Error) => void>();
+  /** One activation check for all of a run's lanes, before any batch goes out. */
+  private gate: ActivationGate;
 
-  constructor(private account: CloudAccount) {}
+  constructor(
+    private account: CloudAccount,
+    private license: () => string | null
+  ) {
+    this.gate = new ActivationGate(() => this.account.status());
+  }
 
   async run(jobs: DescribeJob[], vocabulary: string[], timeoutMs: number, depth: Depth): Promise<RunOutcome> {
+    const ready = await this.gate.wait(this.license() ?? "");
+    if (!ready.ok) return { ok: false, failure: ready.failure, message: ready.message };
     const first = await this.describe(jobs, vocabulary, timeoutMs, depth);
     if (first !== "not-activated") return first;
-    // A key pasted on this device before any run: activate, then try once more.
-    const activated = await this.account.activate();
+    // Deactivated since the check (removed elsewhere, say): activate, then try once more.
+    this.gate.forget();
+    const activated = await this.gate.wait(this.license() ?? "");
     if (!activated.ok) return { ok: false, failure: activated.failure, message: activated.message };
     const second = await this.describe(jobs, vocabulary, timeoutMs, depth);
     // Still settling on the server: waited out and tried again like a rate

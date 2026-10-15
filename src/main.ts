@@ -136,7 +136,7 @@ export default class OrikoPlugin extends Plugin {
         {
           "claude-code": new ClaudeCodeEngine(() => this.settings.describePreferLogin),
           "api-key": new ApiKeyEngine(() => this.describeKey()),
-          "oriko-cloud": new OrikoCloudEngine(this.cloud),
+          "oriko-cloud": new OrikoCloudEngine(this.cloud, () => this.cloudLicense()),
         },
         () => this.describeEngine()
       ),

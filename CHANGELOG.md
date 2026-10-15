@@ -5,6 +5,11 @@ All notable changes to Oriko will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- **A Describe run that stops on a problem says why straight away.** If Describe has to stop partway (you've signed out of Claude Code, say, or your API key is out of credit), the message now appears the moment it happens, and any clips already being described still get their labels.
+
 ## [0.1.69] - 2026-10-15
 
 ### Added

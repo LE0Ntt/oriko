@@ -186,7 +186,7 @@ describe("DescribeRunner", () => {
   });
 
   it("halts at once on an Oriko Cloud license, device, allowance or availability problem", async () => {
-    for (const failure of ["license-rejected", "license-inactive", "device-limit", "allowance-used", "cloud-unavailable"] as const) {
+    for (const failure of ["license-rejected", "license-inactive", "device-limit", "allowance-used", "cloud-unavailable", "cloud-refused"] as const) {
       const h = harness({
         paths: ["a.md", "b.md"],
         run: async () => ({ ok: false, failure, message: failure }),
@@ -213,6 +213,27 @@ describe("DescribeRunner", () => {
     await h.runner.describe(["a.md", "b.md"], h.writer);
     expect(h.written.map(([path]) => path)).toEqual(["b.md"]);
     expect(h.notices.at(-1)).toBe(HALTS["allowance-used"]);
+  });
+
+  it("says why a run halted the moment it does, not once the last batch lands", async () => {
+    let release: () => void = () => undefined;
+    const h = harness({
+      paths: ["a.md", "b.md"],
+      concurrency: 2,
+      run: async (jobs) => {
+        if (jobs[0].path === "a.md") return { ok: false, failure: "cloud-unavailable", message: "down" };
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        return { ok: true, results: jobs.map((job) => answer(job.id)) };
+      },
+    });
+    const done = h.runner.describe(["a.md", "b.md"], h.writer);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(h.notices).toEqual([HALTS["cloud-unavailable"]]);
+    release();
+    await done;
+    expect(h.notices).toEqual([HALTS["cloud-unavailable"]]);
   });
 
   it("drops a batch on its way when the user stops the run", async () => {

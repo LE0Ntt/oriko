@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { CLOUD_IMAGE_MAX, cloudBody, cloudOutcome, installLabel, looksLikeKey, usageLine } from "../src/core/cloud-engine";
+import {
+  ActivationGate,
+  CLOUD_IMAGE_MAX,
+  CLOUD_LIMITS,
+  cloudBody,
+  cloudOutcome,
+  installLabel,
+  looksLikeKey,
+  usageLine,
+} from "../src/core/cloud-engine";
 import type { DescribeJob } from "../src/core/claude-engine";
 
 const job = (over: Partial<DescribeJob> = {}): DescribeJob => ({
@@ -35,6 +44,59 @@ describe("cloudBody limits", () => {
     const body = cloudBody([job({ image: "/9j/" + "A".repeat(CLOUD_IMAGE_MAX) })], [], "standard");
     expect(body.jobs[0].image).toBeNull();
     expect(CLOUD_IMAGE_MAX).toBe(1_000_000);
+  });
+});
+
+describe("cloudBody text limits", () => {
+  it("cuts long text and the category list to what the server takes, so no clip sinks its batch", () => {
+    const body = cloudBody(
+      [job({ title: "t".repeat(800), description: "d".repeat(800), domain: "x".repeat(600) })],
+      [...Array.from({ length: 600 }, (_, i) => `term-${i}`), "y".repeat(120)],
+      "standard"
+    );
+    expect(body.jobs[0].title.length).toBe(CLOUD_LIMITS.field);
+    expect(body.jobs[0].description.length).toBe(CLOUD_LIMITS.field);
+    expect(body.jobs[0].domain.length).toBe(CLOUD_LIMITS.field);
+    expect(body.vocabulary.length).toBe(CLOUD_LIMITS.terms);
+    expect(body.vocabulary.every((term) => term.length <= CLOUD_LIMITS.term)).toBe(true);
+    expect(CLOUD_LIMITS).toEqual({ field: 500, terms: 500, term: 80 });
+  });
+
+  it("drops overlong categories before cutting the list, keeping the most used", () => {
+    const body = cloudBody([job()], ["design", "z".repeat(81), "food"], "standard");
+    expect(body.vocabulary).toEqual(["design", "food"]);
+  });
+});
+
+describe("ActivationGate", () => {
+  it("checks once for all the lanes of a run", async () => {
+    let checks = 0;
+    const gate = new ActivationGate(async () => {
+      checks++;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      return { ok: true };
+    });
+    const all = await Promise.all(Array.from({ length: 6 }, () => gate.wait("KEY")));
+    expect(all.every((r) => r.ok)).toBe(true);
+    expect(checks).toBe(1);
+    await gate.wait("KEY");
+    expect(checks).toBe(1);
+  });
+
+  it("checks again for a new key, after a failure, or when told to forget", async () => {
+    let checks = 0;
+    let answer: { ok: true } | { ok: false; failure: "device-limit"; message: string } = { ok: false, failure: "device-limit", message: "full" };
+    const gate = new ActivationGate(async () => {
+      checks++;
+      return answer;
+    });
+    expect(await gate.wait("KEY")).toMatchObject({ ok: false, failure: "device-limit" });
+    answer = { ok: true };
+    expect(await gate.wait("KEY")).toMatchObject({ ok: true });
+    await gate.wait("OTHER");
+    gate.forget();
+    await gate.wait("OTHER");
+    expect(checks).toBe(4);
   });
 });
 
@@ -76,8 +138,16 @@ describe("cloudOutcome", () => {
     expect(cloudOutcome(503, { error: "overloaded", message: "" })).toMatchObject({ failure: "rate-limit" });
   });
 
+  it("stops the run when the server can't read what Oriko sent, since every batch would fail the same way", () => {
+    expect(cloudOutcome(400, { error: "bad-request", message: "" })).toMatchObject({ failure: "cloud-refused" });
+  });
+
+  it("fails a batch Claude ran out of time on without retrying its clips, since it was charged", () => {
+    expect(cloudOutcome(504, { error: "timeout", message: "" })).toMatchObject({ failure: "batch-lost" });
+  });
+
   it("fails only the batch on anything else, including an answer that is not the server's", () => {
-    expect(cloudOutcome(400, { error: "bad-request", message: "" })).toMatchObject({ failure: "error" });
+    expect(cloudOutcome(500, { error: "server-error", message: "" })).toMatchObject({ failure: "error" });
     expect(cloudOutcome(502, { error: "upstream", message: "" })).toMatchObject({ failure: "error" });
     expect(cloudOutcome(500, "<html>")).toMatchObject({ failure: "error" });
     expect(cloudOutcome(200, { nothing: true })).toMatchObject({ failure: "error" });

@@ -90,7 +90,8 @@ type Halt =
   | "license-inactive"
   | "device-limit"
   | "allowance-used"
-  | "cloud-unavailable";
+  | "cloud-unavailable"
+  | "cloud-refused";
 
 /** Failures that would fail every batch after them, so the run stops at the first. */
 const HALTING: ReadonlySet<string> = new Set<Halt>([
@@ -105,6 +106,7 @@ const HALTING: ReadonlySet<string> = new Set<Halt>([
   "device-limit",
   "allowance-used",
   "cloud-unavailable",
+  "cloud-refused",
 ]);
 
 export const HALTS: Record<Halt, string> = {
@@ -121,6 +123,8 @@ export const HALTS: Record<Halt, string> = {
   "allowance-used":
     "Oriko: you've used this month's Oriko Cloud allowance. Describing stopped; what was described is kept. It resets on the 1st.",
   "cloud-unavailable": "Oriko: Oriko Cloud isn't available right now. Describing stopped; what was described is kept.",
+  "cloud-refused":
+    "Oriko: Oriko Cloud couldn't read what this version of Oriko sent. Describing stopped; update Oriko, then describe again.",
   "no-credit":
     "Oriko: the Anthropic API key Describe is billing is out of credit. Describing stopped; what was described is kept. Settings → Oriko shows which key is in use.",
   "usage-limit": "Oriko: your Claude usage limit is reached. Describing stopped; what was described is kept.",
@@ -262,8 +266,8 @@ export class DescribeRunner {
       // Down only now, beside the closing line, so nothing reads as finished
       // while the suggestions are still being saved.
       this.deps.progress(null);
-      if (this.halted) this.deps.notify(this.halted);
-      else this.deps.finished(this.summary(written.length));
+      // A halted run said why when it halted.
+      if (!this.halted) this.deps.finished(this.summary(written.length));
     }
   }
 
@@ -402,7 +406,11 @@ export class DescribeRunner {
    * paid for, so throwing their answers away would waste them.
    */
   private halt(reason: Halt): void {
-    this.halted ??= HALTS[reason];
+    if (this.halted === null) {
+      this.halted = HALTS[reason];
+      // Said now, while batches already out are still landing.
+      this.deps.notify(this.halted);
+    }
     this.stopped = true;
   }
 
