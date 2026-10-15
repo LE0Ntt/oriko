@@ -4,6 +4,7 @@ import {
   CLOUD_IMAGE_MAX,
   CLOUD_LIMITS,
   cloudBody,
+  cloudWait,
   cloudOutcome,
   installLabel,
   looksLikeKey,
@@ -100,6 +101,57 @@ describe("ActivationGate", () => {
   });
 });
 
+describe("cloudWait", () => {
+  it("waits long enough for the server's own limit and a license check on a lone clip", () => {
+    expect(cloudWait(60_000)).toBe(90_000);
+    expect(cloudWait(120_000)).toBe(120_000);
+  });
+});
+
+describe("ActivationGate, as lanes come and go", () => {
+  function deferred() {
+    let resolve: (value: { ok: true }) => void = () => undefined;
+    const promise = new Promise<{ ok: true }>((r) => {
+      resolve = r;
+    });
+    return { promise, resolve };
+  }
+
+  it("lets a lane that hears 'not activated' join a check already running", async () => {
+    let checks = 0;
+    const d = deferred();
+    const gate = new ActivationGate(() => (checks++, d.promise));
+    const first = gate.wait("KEY");
+    gate.forget();
+    const second = gate.wait("KEY");
+    d.resolve({ ok: true });
+    await Promise.all([first, second]);
+    expect(checks).toBe(1);
+  });
+
+  it("never counts a check of one key as a check of the next", async () => {
+    const checks: Array<ReturnType<typeof deferred>> = [];
+    const gate = new ActivationGate(() => {
+      const d = deferred();
+      checks.push(d);
+      return d.promise;
+    });
+    void gate.wait("A");
+    const b = gate.wait("B");
+    checks[0].resolve({ ok: true });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    let settled = false;
+    void gate.wait("B").then(() => {
+      settled = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(settled).toBe(false);
+    checks[1].resolve({ ok: true });
+    await b;
+    expect(checks).toHaveLength(2);
+  });
+});
+
 describe("looksLikeKey", () => {
   it("knows a whole license key from a half-typed one", () => {
     expect(looksLikeKey("ORIKO-1C285B2D-6CE6-4BC7-B8BE-ADB6A7E304DA")).toBe(true);
@@ -142,8 +194,8 @@ describe("cloudOutcome", () => {
     expect(cloudOutcome(400, { error: "bad-request", message: "" })).toMatchObject({ failure: "cloud-refused" });
   });
 
-  it("fails a batch Claude ran out of time on without retrying its clips, since it was charged", () => {
-    expect(cloudOutcome(504, { error: "timeout", message: "" })).toMatchObject({ failure: "batch-lost" });
+  it("retries clip by clip a batch Claude ran out of time on, since the server doesn't count it", () => {
+    expect(cloudOutcome(504, { error: "timeout", message: "" })).toMatchObject({ failure: "error" });
   });
 
   it("fails only the batch on anything else, including an answer that is not the server's", () => {

@@ -1,5 +1,5 @@
 import { requestUrl } from "obsidian";
-import { ActivationGate, CLOUD_BASE, cloudBody, cloudOutcome } from "./core/cloud-engine";
+import { ActivationGate, CLOUD_BASE, cloudBody, cloudOutcome, cloudWait } from "./core/cloud-engine";
 import type { CloudUsage } from "./core/cloud-engine";
 import type { Depth, DescribeJob, EngineFailure, RunOutcome } from "./core/claude-engine";
 import type { DescribeEngine } from "./core/describe-run";
@@ -165,7 +165,7 @@ export class OrikoCloudEngine implements DescribeEngine {
     });
     this.cancels.add(cancel);
     try {
-      const answer = await this.account.call("POST", "/v1/describe", cloudBody(jobs, vocabulary, depth), timeoutMs, abort);
+      const answer = await this.account.call("POST", "/v1/describe", cloudBody(jobs, vocabulary, depth), cloudWait(timeoutMs), abort);
       return cloudOutcome(answer.status, answer.body);
     } catch (error) {
       // Gone past the time limit, the batch may still be charged and finished

@@ -20,6 +20,18 @@ export const LICENSE_SECRET = "oriko-cloud-license";
 export const INSTALL_KEY = "oriko-cloud-install";
 /** The server's cap on one picture, in base64 characters. */
 export const CLOUD_IMAGE_MAX = 1_000_000;
+/**
+ * The least Oriko waits for an answer from Oriko Cloud: the server gives
+ * Claude 45 seconds and may check the license with Polar first, so the 60
+ * seconds Oriko gives a lone clip elsewhere could give up on an answer that
+ * was on its way and charged.
+ */
+const CLOUD_MIN_WAIT_MS = 90_000;
+
+export function cloudWait(timeoutMs: number): number {
+  return Math.max(timeoutMs, CLOUD_MIN_WAIT_MS);
+}
+
 /** The server's caps on text: title, description and domain, and the category list and each category. */
 export const CLOUD_LIMITS = { field: 500, terms: 500, term: 80 };
 
@@ -84,8 +96,8 @@ const FAILURES: Record<string, EngineFailure> = {
   overloaded: "rate-limit",
   // Every batch would be refused the same way: stop and say so.
   "bad-request": "cloud-refused",
-  // Charged though unanswered: retrying clip by clip would charge it again.
-  timeout: "batch-lost",
+  // The server doesn't count clips it couldn't label, so they're retried one by one.
+  timeout: "error",
 };
 
 /** What the server's answer means for the run, or that this device needs activating first. */
@@ -133,16 +145,21 @@ export class ActivationGate {
       this.pending = null;
     }
     if (this.ready) return Promise.resolve({ ok: true });
-    this.pending ??= this.check().then((result) => {
-      if (result.ok) this.ready = true;
-      this.pending = null;
+    if (this.pending) return this.pending;
+    const pending: Promise<Readiness> = this.check().then((result) => {
+      // A check overtaken by a new key speaks only for the lanes that asked for it.
+      if (this.pending === pending) {
+        this.pending = null;
+        if (result.ok) this.ready = true;
+      }
       return result;
     });
-    return this.pending;
+    this.pending = pending;
+    return pending;
   }
 
+  /** The device turned out not to be activated: check again, joining any check already running. */
   forget(): void {
     this.ready = false;
-    this.pending = null;
   }
 }

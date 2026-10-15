@@ -471,12 +471,12 @@ export class DescribeRunner {
     const timeout = jobs.length > 1 ? this.options.batchTimeoutMs : this.options.singleTimeoutMs;
     const outcome = await this.runJobs(jobs, vocabulary, timeout);
     if (this.cancelled) return;
-    // Halted while this batch was out: keep what came back, start nothing more.
+    // Halted while this batch was out: keep what came back, start nothing
+    // more, and fail the rest so Retry failed picks them up.
     if (this.stopped) {
-      if (outcome.ok) {
-        const { matched } = matchResults(jobs, outcome.results);
-        for (const [job, raw] of matched) await this.accept(job.path, raw, vocabulary, writer, written);
-      }
+      const { matched, missing } = outcome.ok ? matchResults(jobs, outcome.results) : { matched: [], missing: jobs };
+      for (const [job, raw] of matched) await this.accept(job.path, raw, vocabulary, writer, written);
+      for (const job of missing) this.fail(job.path);
       return;
     }
     if (!outcome.ok && outcome.failure === "batch-lost") {
@@ -504,7 +504,8 @@ export class DescribeRunner {
     for (const job of jobs) {
       if (this.stopped) return;
       const outcome = await this.runJobs([{ ...job, id: 0 }], vocabulary, this.options.singleTimeoutMs);
-      if (this.stopped) return;
+      // Halted while it was out, the answer is still kept: it was sent and paid for.
+      if (this.cancelled) return;
       const raw = outcome.ok ? outcome.results.find((r) => r.caption.trim()) : undefined;
       if (raw) await this.accept(job.path, raw, vocabulary, writer, written);
       else this.fail(job.path);

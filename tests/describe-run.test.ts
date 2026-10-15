@@ -215,6 +215,41 @@ describe("DescribeRunner", () => {
     expect(h.notices.at(-1)).toBe(HALTS["allowance-used"]);
   });
 
+  it("keeps a lone clip's answer that lands after another lane halts the run", async () => {
+    let bCalls = 0;
+    const h = harness({
+      paths: ["a.md", "b.md"],
+      concurrency: 2,
+      run: async (jobs) => {
+        if (jobs[0].path === "a.md") {
+          await new Promise((resolve) => setTimeout(resolve, 10));
+          return { ok: false, failure: "allowance-used", message: "used" };
+        }
+        bCalls++;
+        if (bCalls === 1) return { ok: false, failure: "error", message: "bad batch" };
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        return { ok: true, results: [answer(0)] };
+      },
+    });
+    await h.runner.describe(["a.md", "b.md"], h.writer);
+    expect(h.written.map(([path]) => path)).toEqual(["b.md"]);
+  });
+
+  it("fails what a batch landing after a halt didn't label, so Retry failed finds it", async () => {
+    const h = harness({
+      paths: ["a.md", "b.md", "c.md"],
+      concurrency: 3,
+      run: async (jobs) => {
+        if (jobs[0].path === "a.md") return { ok: false, failure: "allowance-used", message: "used" };
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        if (jobs[0].path === "b.md") return { ok: true, results: [] };
+        return { ok: false, failure: "error", message: "bad batch" };
+      },
+    });
+    await h.runner.describe(["a.md", "b.md", "c.md"], h.writer);
+    expect(h.statuses).toEqual(expect.arrayContaining(["failed:b.md", "failed:c.md"]));
+  });
+
   it("says why a run halted the moment it does, not once the last batch lands", async () => {
     let release: () => void = () => undefined;
     const h = harness({
