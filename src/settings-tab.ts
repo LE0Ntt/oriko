@@ -247,12 +247,12 @@ export class OrikoSettingTab extends PluginSettingTab {
           },
           {
             name: "yt-dlp path",
-            desc: "Where yt-dlp lives, which is what fetches a post's own video. Leave it empty and Oriko goes looking (PATH, Homebrew, winget, scoop, chocolatey, ~/.local/bin).",
+            desc: "Where yt-dlp lives, which is what fetches a post's own video. Leave it empty to use the usual install locations (PATH, Homebrew, winget, scoop, chocolatey, ~/.local/bin).",
             control: { type: "text", key: "ytdlpPath" },
           },
           {
             name: "ffmpeg path",
-            desc: "Where ffmpeg lives, which makes previews for anything Obsidian cannot play. Leave it empty and Oriko goes looking the same way.",
+            desc: "Where ffmpeg lives, which makes previews for anything Obsidian cannot play. Leave it empty to use the usual install locations.",
             control: { type: "text", key: "ffmpegPath" },
           },
           {
@@ -277,7 +277,7 @@ export class OrikoSettingTab extends PluginSettingTab {
           },
           {
             name: "Claude Code path",
-            desc: "Leave it empty and Oriko goes looking.",
+            desc: "Leave it empty to use the usual install location.",
             visible: () => this.describing("claude-code"),
             control: { type: "text", key: "claudePath" },
           },
