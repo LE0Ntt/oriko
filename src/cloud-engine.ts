@@ -27,6 +27,9 @@ export type CloudStatus = { ok: true; usage: CloudUsage } | { ok: false; failure
 
 const ACCOUNT_TIMEOUT_MS = 20_000;
 
+/** No answer in time. The request may still be running on the server. */
+class NoAnswer extends Error {}
+
 export class CloudAccount {
   constructor(private id: CloudIdentity) {}
 
@@ -41,7 +44,7 @@ export class CloudAccount {
     if (body !== undefined) headers["Content-Type"] = "application/json";
     let timer = 0;
     const timeout = new Promise<never>((_, reject) => {
-      timer = window.setTimeout(() => reject(new Error("Oriko Cloud did not answer in time")), timeoutMs);
+      timer = window.setTimeout(() => reject(new NoAnswer("Oriko Cloud did not answer in time")), timeoutMs);
     });
     const request = requestUrl({
       url: `${CLOUD_BASE}${path}`,
@@ -62,6 +65,22 @@ export class CloudAccount {
       return await Promise.race(abort ? [request, timeout, abort] : [request, timeout]);
     } finally {
       window.clearTimeout(timer);
+    }
+  }
+
+  /**
+   * The subscription as the server sees it, activating this device only if
+   * the server says it isn't yet. Reading usage first keeps a settings page
+   * that redraws from spending activation attempts, which are limited.
+   */
+  async status(): Promise<CloudStatus> {
+    if (!this.id.license()) return { ok: false, failure: "license-rejected", message: "No license key is saved." };
+    try {
+      const answer = await this.call("GET", "/v1/usage", undefined, ACCOUNT_TIMEOUT_MS);
+      if (cloudOutcome(answer.status, answer.body) === "not-activated") return this.activate();
+      return status(answer);
+    } catch (error) {
+      return { ok: false, failure: "error", message: error instanceof Error ? error.message : String(error) };
     }
   }
 
@@ -88,7 +107,10 @@ export class CloudAccount {
     if (!key) return false;
     try {
       const answer = await this.call("POST", "/v1/deactivate", { key, install: this.id.install() }, ACCOUNT_TIMEOUT_MS);
-      return answer.status === 200;
+      // A key the server no longer knows (rotated, or its records cleared)
+      // has no device here to free: removing it locally is all that's left.
+      const unknown = cloudOutcome(answer.status, answer.body);
+      return answer.status === 200 || (unknown !== "not-activated" && !unknown.ok && unknown.failure === "license-rejected");
     } catch {
       return false;
     }
@@ -134,6 +156,9 @@ export class OrikoCloudEngine implements DescribeEngine {
       const answer = await this.account.call("POST", "/v1/describe", cloudBody(jobs, vocabulary, depth), timeoutMs, abort);
       return cloudOutcome(answer.status, answer.body);
     } catch (error) {
+      // Gone past the time limit, the batch may still be charged and finished
+      // on the server: fail it, never retry its clips one by one.
+      if (error instanceof NoAnswer) return { ok: false, failure: "batch-lost", message: error.message };
       return { ok: false, failure: "error", message: error instanceof Error ? error.message : String(error) };
     } finally {
       this.cancels.delete(cancel);

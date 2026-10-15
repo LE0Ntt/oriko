@@ -196,6 +196,21 @@ describe("DescribeRunner", () => {
     }
   });
 
+  it("doesn't blame Claude for a limit Oriko Cloud may have set", () => {
+    expect(HALTS["rate-limit"]).not.toMatch(/Claude/);
+  });
+
+  it("fails a lost batch without retrying its clips one by one, which would charge them twice", async () => {
+    const h = harness({
+      paths: ["a.md", "b.md"],
+      run: async () => ({ ok: false, failure: "batch-lost", message: "Oriko Cloud did not answer in time" }),
+    });
+    await h.runner.describe(["a.md", "b.md"], h.writer);
+    // The harness batches one clip at a time: one call each, and no second.
+    expect(h.events.filter((e) => e.startsWith("run:"))).toEqual(["run:a.md", "run:b.md"]);
+    expect(h.runner.context([]).failed).toBe(2);
+  });
+
   it("points a stopped Claude Code run at the API-key engine", () => {
     expect(HALTS["third-party"]).toMatch(/API key/);
     expect(HALTS["not-logged-in"]).toMatch(/API key/);

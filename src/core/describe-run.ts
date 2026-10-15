@@ -125,7 +125,7 @@ export const HALTS: Record<Halt, string> = {
     "Oriko: the Anthropic API key Describe is billing is out of credit. Describing stopped; what was described is kept. Settings → Oriko shows which key is in use.",
   "usage-limit": "Oriko: your Claude usage limit is reached. Describing stopped; what was described is kept.",
   "rate-limit":
-    "Oriko: Claude is limiting requests right now. Describing stopped; what was described is kept. Try again in a few minutes.",
+    "Oriko: requests are being limited right now. Describing stopped; what was described is kept. Try again in a few minutes.",
   "not-found": "Oriko: Claude Code was not found. Check Settings → Oriko → Claude Code path.",
 };
 
@@ -454,6 +454,12 @@ export class DescribeRunner {
     const timeout = jobs.length > 1 ? this.options.batchTimeoutMs : this.options.singleTimeoutMs;
     const outcome = await this.runJobs(jobs, vocabulary, timeout);
     if (this.stopped) return;
+    if (!outcome.ok && outcome.failure === "batch-lost") {
+      // Retrying singly would pay for the same clips again; Retry failed
+      // picks them up later, at no cost if the lost batch was refunded.
+      for (const job of jobs) this.fail(job.path);
+      return;
+    }
     if (!outcome.ok) {
       await this.runSingly(jobs, vocabulary, writer, written);
       return;

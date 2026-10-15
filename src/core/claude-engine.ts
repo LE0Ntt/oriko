@@ -64,6 +64,11 @@ export type EngineFailure =
   | "allowance-used"
   /** Oriko Cloud cannot take work right now. */
   | "cloud-unavailable"
+  /**
+   * The batch went out but no answer came back in time. The server may still
+   * finish and charge it, so its clips fail without being retried one by one.
+   */
+  | "batch-lost"
   | "error";
 
 export type RunOutcome =

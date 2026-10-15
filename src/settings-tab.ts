@@ -2,6 +2,7 @@ import { AbstractInputSuggest, App, Platform, PluginSettingTab, Setting } from "
 import type { SettingDefinitionItem } from "obsidian";
 import { slotCandidates, surveyProperties } from "./core/facet-catalog";
 import { facetLabel } from "./core/filter";
+import type { CloudStatus } from "./cloud-engine";
 import { CLOUD_CHECKOUT, CLOUD_LAUNCHED, LICENSE_SECRET, usageLine } from "./core/cloud-engine";
 import { API_KEY_SECRET } from "./core/engines";
 import type { EngineKind } from "./core/engines";
@@ -461,6 +462,8 @@ export class OrikoSettingTab extends PluginSettingTab {
   /** The Subscription row, repainted when a key is pasted. */
   private cloudSetting: Setting | null = null;
   private cloudTimer = 0;
+  /** The last answer about the subscription, by key, so a redraw of this page doesn't ask the server again. */
+  private cloudKnown: { key: string; status: CloudStatus } | null = null;
 
   /**
    * The engines settings offer. Oriko Cloud joins once it launches, or when
@@ -484,8 +487,16 @@ export class OrikoSettingTab extends PluginSettingTab {
   private scheduleCloudCheck(): void {
     window.clearTimeout(this.cloudTimer);
     this.cloudTimer = window.setTimeout(() => {
+      this.cloudKnown = null;
       if (this.cloudSetting) void this.paintCloudStatus(this.cloudSetting);
     }, 800);
+  }
+
+  hide(): void {
+    window.clearTimeout(this.cloudTimer);
+    // Asked afresh next time the page opens.
+    this.cloudKnown = null;
+    super.hide();
   }
 
   /**
@@ -503,8 +514,13 @@ export class OrikoSettingTab extends PluginSettingTab {
       }
       return;
     }
-    setting.setDesc("Checking…");
-    const status = await this.plugin.cloud.activate();
+    const key = this.plugin.cloudLicense() ?? "";
+    let status = this.cloudKnown?.key === key ? this.cloudKnown.status : null;
+    if (!status) {
+      setting.setDesc("Checking…");
+      status = await this.plugin.cloud.status();
+      this.cloudKnown = { key, status };
+    }
     if (setting !== this.cloudSetting) return;
     setting.setDesc(status.ok ? `Active. ${usageLine(status.usage)}.` : status.message);
     setting.addButton((button) =>
@@ -519,6 +535,7 @@ export class OrikoSettingTab extends PluginSettingTab {
         // The key leaves this device too, or the next look at this page would
         // activate it again.
         this.app.secretStorage.setSecret(LICENSE_SECRET, "");
+        this.cloudKnown = null;
         this.update();
       })
     );
