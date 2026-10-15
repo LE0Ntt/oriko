@@ -60,6 +60,7 @@ function harness(
     write?: (path: string, values: FrontmatterWrite) => Promise<boolean>;
     cancelAll?: () => void;
     concurrency?: number;
+    batchSize?: number;
   } = {}
 ): Harness {
   const events: string[] = [];
@@ -111,7 +112,7 @@ function harness(
       finished: (summary) => notices.push(`Oriko: ${summaryText(summary)}`),
       notify: (text) => notices.push(text),
     },
-    { batchSize: 1, concurrency: options.concurrency ?? 1, rateLimitWaitMs: 0, batchTimeoutMs: 1000, singleTimeoutMs: 1000 }
+    { batchSize: options.batchSize ?? 1, concurrency: options.concurrency ?? 1, rateLimitWaitMs: 0, batchTimeoutMs: 1000, singleTimeoutMs: 1000 }
   );
   const writer: DescribeWriter = {
     write:
@@ -233,6 +234,26 @@ describe("DescribeRunner", () => {
     });
     await h.runner.describe(["a.md", "b.md"], h.writer);
     expect(h.written.map(([path]) => path)).toEqual(["b.md"]);
+  });
+
+  it("fails the clips still waiting for a one-by-one retry when the run halts, so Retry failed finds them", async () => {
+    const h = harness({
+      paths: ["x.md", "y.md", "z.md"],
+      concurrency: 2,
+      batchSize: 2,
+      run: async (jobs) => {
+        if (jobs.some((job) => job.path === "z.md")) {
+          await new Promise((resolve) => setTimeout(resolve, 15));
+          return { ok: false, failure: "allowance-used", message: "used" };
+        }
+        if (jobs.length === 2) return { ok: false, failure: "error", message: "bad batch" };
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        return { ok: true, results: [answer(0)] };
+      },
+    });
+    await h.runner.describe(["x.md", "y.md", "z.md"], h.writer);
+    expect(h.written.map(([path]) => path)).toEqual(["x.md"]);
+    expect(h.statuses).toContain("failed:y.md");
   });
 
   it("fails what a batch landing after a halt didn't label, so Retry failed finds it", async () => {

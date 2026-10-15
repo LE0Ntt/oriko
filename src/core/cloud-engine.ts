@@ -146,14 +146,20 @@ export class ActivationGate {
     }
     if (this.ready) return Promise.resolve({ ok: true });
     if (this.pending) return this.pending;
-    const pending: Promise<Readiness> = this.check().then((result) => {
-      // A check overtaken by a new key speaks only for the lanes that asked for it.
-      if (this.pending === pending) {
-        this.pending = null;
-        if (result.ok) this.ready = true;
-      }
-      return result;
-    });
+    const pending: Promise<Readiness> = this.check()
+      .catch((error: unknown): Readiness => ({
+        ok: false,
+        failure: "error",
+        message: error instanceof Error ? error.message : String(error),
+      }))
+      .then((result) => {
+        // A check overtaken by a new key speaks only for the lanes that asked for it.
+        if (this.pending === pending) {
+          this.pending = null;
+          if (result.ok) this.ready = true;
+        }
+        return result;
+      });
     this.pending = pending;
     return pending;
   }

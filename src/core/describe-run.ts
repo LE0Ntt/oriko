@@ -501,8 +501,13 @@ export class DescribeRunner {
     writer: DescribeWriter,
     written: Written[]
   ): Promise<void> {
-    for (const job of jobs) {
-      if (this.stopped) return;
+    for (const [index, job] of jobs.entries()) {
+      if (this.stopped) {
+        // Halted with these still to retry: failed, so Retry failed finds
+        // them. A run the user stopped leaves them as they were.
+        if (!this.cancelled) for (const rest of jobs.slice(index)) this.fail(rest.path);
+        return;
+      }
       const outcome = await this.runJobs([{ ...job, id: 0 }], vocabulary, this.options.singleTimeoutMs);
       // Halted while it was out, the answer is still kept: it was sent and paid for.
       if (this.cancelled) return;
