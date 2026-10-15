@@ -267,7 +267,9 @@ export class OrikoSettingTab extends PluginSettingTab {
           },
           {
             name: "Describe engine",
-            desc: "Runs on your own Claude, billed by Anthropic.",
+            desc: this.offersCloud()
+              ? "Your own Claude, billed by Anthropic, or Oriko Cloud by subscription."
+              : "Runs on your own Claude, billed by Anthropic.",
             visible: () => this.describing(),
             control: {
               type: "dropdown",
@@ -462,15 +464,20 @@ export class OrikoSettingTab extends PluginSettingTab {
 
   /**
    * The engines settings offer. Oriko Cloud joins once it launches, or when
-   * it is already the engine in force, so a tester's choice still shows.
+   * it is already the engine in force, so a tester's choice still shows; the
+   * engine row's description follows the same rule.
    */
   private engineOptions(): Record<string, string> {
     const options: Record<string, string> = {
       "claude-code": "Claude Code on this computer",
       "api-key": "Anthropic API key",
     };
-    if (CLOUD_LAUNCHED || this.plugin.settings.describeEngine === "oriko-cloud") options["oriko-cloud"] = "Oriko Cloud";
+    if (this.offersCloud()) options["oriko-cloud"] = "Oriko Cloud";
     return options;
+  }
+
+  private offersCloud(): boolean {
+    return CLOUD_LAUNCHED || this.plugin.settings.describeEngine === "oriko-cloud";
   }
 
   /** Checks a pasted key once typing stops, so each keystroke is not a call to the server. */
