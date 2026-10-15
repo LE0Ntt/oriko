@@ -54,7 +54,7 @@ The full-screen view zooms and pans the original, shows the picture's own color 
 
 ## The Palette
 
-⌘K, or **Search this grid** from the command palette, opens one input over the dimmed wall that finds both the clippings and the things you can do to them: actions, grids, filter values, capture, and every clipping in the vault by name, each with a preview. A command that needs an argument opens a second stage in place, so moving four clippings to another grid is one gesture.
+⌘K, or **Search this grid** from the command palette, opens one input over the dimmed wall. It lists the things you can do, grouped under Selection, Grids, Filters, Edit and Capture, and once you start typing it also finds filter values and every clipping in the vault by name, each with a preview. A command that needs an argument opens a second stage in place, so moving four clippings to another grid is one gesture.
 
 Beyond the palette, ⌘Z undoes the last move, edit, or folder and grid change and ⌘⇧Z redoes it, ⌘1 through ⌘9 switch grids in their stored order, ⌘N clips whatever is on the clipboard, ⌘E exports the selection, and the arrow keys move between tiles.
 

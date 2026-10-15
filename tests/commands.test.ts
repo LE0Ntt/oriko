@@ -250,6 +250,35 @@ describe("buildCommands", () => {
     const list = ids(context());
     expect(list).toContain("capture:clip");
     expect(list).toContain("capture:archive-all");
+    expect(find(context(), "capture:archive-all")?.label).toBe("Archive media");
+  });
+
+  it("files each row under the section it belongs to", () => {
+    const ctx = context({
+      selection: ["a.md"],
+      undoLabel: "Move",
+      redoLabel: "Move",
+      describe: describing({ uncategorized: ["b.md"], failed: 1 }),
+    });
+    const sections = new Map(buildCommands(ctx).map((c) => [c.id, c.section]));
+    expect(sections.get("selection:open-note")).toBe("Selection");
+    expect(sections.get("selection:delete")).toBe("Selection");
+    expect(sections.get("describe:selected")).toBe("Selection");
+    expect(sections.get("describe:uncategorized")).toBe("Describe");
+    expect(sections.get("describe:retry")).toBe("Describe");
+    expect(sections.get("grid:new")).toBe("Grids");
+    expect(sections.get("history:undo")).toBe("Edit");
+    expect(sections.get("history:redo")).toBe("Edit");
+    expect(sections.get("view:select-all")).toBe("Edit");
+    expect(sections.get("view:reset-zoom")).toBe("Edit");
+    expect(sections.get("capture:clip")).toBe("Capture");
+    expect(sections.get("capture:archive-all")).toBe("Capture");
+  });
+
+  it("offers Describe among the selection's actions, ahead of Delete", () => {
+    const list = ids(context({ selection: ["a.md"], describe: describing() }));
+    expect(list.indexOf("describe:selected")).toBeGreaterThan(list.indexOf("selection:folder"));
+    expect(list.indexOf("describe:selected")).toBeLessThan(list.indexOf("selection:delete"));
   });
 
   it("gives every command a unique id", () => {
@@ -457,9 +486,9 @@ describe("describe commands", () => {
   });
 
   it("offers the uncategorized run with its count, and hides it at zero", () => {
-    expect(
-      find(context({ describe: describing({ uncategorized: paths(180) }) }), "describe:uncategorized")?.detail
-    ).toBe("180");
+    const row = find(context({ describe: describing({ uncategorized: paths(180) }) }), "describe:uncategorized");
+    expect(row?.label).toBe("Describe uncategorized");
+    expect(row?.detail).toBe("180");
     expect(find(context({ describe: describing() }), "describe:uncategorized")).toBeUndefined();
   });
 
@@ -471,7 +500,9 @@ describe("describe commands", () => {
       actions: { ...actions, describeSelected: (ids: string[], depth: string) => (ran = [ids, depth]) },
     });
     const row = find(ctx, "describe:selected");
-    expect(row?.label).toBe("Describe selected (2)");
+    expect(row?.label).toBe("Describe");
+    expect(row?.section).toBe("Selection");
+    expect(row?.detail).toBe("2 selected");
     expect(row?.stage?.subject).toEqual(["a.md", "b.md"]);
     const rows = row?.stage?.items() ?? [];
     expect(rows.map((r) => r.id)).toEqual([
@@ -480,6 +511,7 @@ describe("describe commands", () => {
       "describe:depth:specific",
     ]);
     expect(rows.map((r) => r.label)).toEqual(["Broad", "Standard", "Specific"]);
+    expect(rows.map((r) => r.detail)).toEqual(["1–2 general labels", "up to 4 labels", "up to 6 labels"]);
     rows[2].run?.();
     expect(ran).toEqual([["a.md", "b.md"], "specific"]);
   });
@@ -532,7 +564,8 @@ describe("describe commands", () => {
       },
     });
     const review = find(ctx, "describe:review");
-    expect(review?.label).toBe("Review suggested categories (12 clips)");
+    expect(review?.label).toBe("Review suggestions");
+    expect(review?.detail).toBe("12 clips");
     const stage = review?.stage;
     expect(stage?.title).toBe("Review · clip 1 of 12");
     expect(stage?.subject).toEqual(["reel.md"]);
@@ -555,7 +588,8 @@ describe("describe commands", () => {
     expect(rows[0].keepOpen).toBe(true);
     rows[1].run?.();
     expect(toggled).toEqual(["reel.md", "sponsored-ad"]);
-    expect(rows[3].label).toBe("Apply all reviewed (1 label on 1 clip)");
+    expect(rows[3].label).toBe("Apply");
+    expect(rows[3].detail).toBe("1 label · 1 clip");
   });
 
   it("lets a clip's suggestions, or all of them, be discarded", () => {
@@ -572,10 +606,12 @@ describe("describe commands", () => {
     const rows = stage?.items() ?? [];
     const clip = rows.find((r) => r.id === "describe:discard-clip");
     const all = rows.find((r) => r.id === "describe:discard-all");
-    expect(clip?.label).toBe("Discard this clip's suggestions");
+    expect(clip?.label).toBe("Discard");
+    expect(clip?.detail).toBe("⇧⌫");
     expect(clip?.destructive).toBe(true);
     expect(clip?.keepOpen).toBe(true);
-    expect(all?.label).toBe("Discard all suggestions");
+    expect(all?.label).toBe("Discard all");
+    expect(all?.detail).toBe("12 clips");
     expect(all?.destructive).toBe(true);
     all?.run?.();
     expect(discarded).toBe("all");
@@ -596,7 +632,7 @@ describe("describe commands", () => {
       "describe:discard-clip",
       "describe:discard-all",
     ]);
-    expect(rows[3].label).toBe("Apply all reviewed (5 labels on 12 clips)");
+    expect(rows[3].detail).toBe("5 labels · 12 clips");
   });
 
   it("hides the review while a run is going", () => {
@@ -605,9 +641,9 @@ describe("describe commands", () => {
   });
 
   it("offers a retry for failed clippings", () => {
-    expect(find(context({ describe: describing({ failed: 4 }) }), "describe:retry")?.label).toBe(
-      "Retry 4 failed"
-    );
+    const retry = find(context({ describe: describing({ failed: 4 }) }), "describe:retry");
+    expect(retry?.label).toBe("Retry failed");
+    expect(retry?.detail).toBe("4");
   });
 
 });

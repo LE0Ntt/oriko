@@ -11,7 +11,7 @@ const command = (id: string, label: string, section: PaletteCommand["section"]):
 });
 
 const commands: PaletteCommand[] = [
-  command("selection:delete", "Delete", "Actions"),
+  command("selection:delete", "Delete", "Selection"),
   command("grid:switch:Demo", "Demo", "Grids"),
   command("capture:link", "Clip link from clipboard", "Capture"),
 ];
@@ -69,13 +69,17 @@ const rowsOf = (query: string, section: string) =>
   searchPalette(query, commands, values, clippings, options).find((g) => g.section === section)?.rows ?? [];
 
 describe("searchPalette", () => {
-  it("opens on the commands, in section order, with clippings last", () => {
-    expect(sections("")).toEqual(["Actions", "Grids", "Capture", "Clippings"]);
+  it("opens on the commands alone, in section order", () => {
+    expect(sections("")).toEqual(["Selection", "Grids", "Capture"]);
+  });
+
+  it("offers clippings from the first character typed that matches them", () => {
+    expect(rowsOf("w", "Clippings").map((row) => row.label)).toEqual(["Nook - Write mode", "manga-downloader", "Rachel How"]);
   });
 
   it("leads with the section holding the best match", () => {
     expect(sections("manga")[0]).toBe("Clippings");
-    expect(sections("delete")[0]).toBe("Actions");
+    expect(sections("delete")[0]).toBe("Selection");
   });
 
   it("drops sections nothing in them matches", () => {
@@ -100,7 +104,7 @@ describe("searchPalette", () => {
 
   it("caps the clippings so the commands stay in view", () => {
     const many = Array.from({ length: 30 }, (_, i) => clipping(`clip ${i}`));
-    const groups = searchPalette("", commands, values, many, options);
+    const groups = searchPalette("clip", commands, values, many, options);
     expect(groups.find((g) => g.section === "Clippings")?.rows).toHaveLength(8);
   });
 

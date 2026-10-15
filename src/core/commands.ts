@@ -17,7 +17,7 @@ import type { GridSpace } from "./spaces";
  * the same view method its menu row calls.
  */
 
-export type PaletteSection = "Actions" | "Grids" | "Filters" | "Capture";
+export type PaletteSection = "Selection" | "Describe" | "Grids" | "Filters" | "Edit" | "Capture";
 
 export interface PaletteStage {
   /** Shown as a chip in the input while the stage is open. */
@@ -187,7 +187,7 @@ function historyCommands(context: PaletteContext): PaletteCommand[] {
       id: "history:undo",
       label: `Undo ${context.undoLabel}`,
       icon: "undo-2",
-      section: "Actions",
+      section: "Edit",
       detail: "\u2318Z",
       keywords: "revert back take back",
       run: () => actions.undo(),
@@ -198,7 +198,7 @@ function historyCommands(context: PaletteContext): PaletteCommand[] {
       id: "history:redo",
       label: `Redo ${context.redoLabel}`,
       icon: "redo-2",
-      section: "Actions",
+      section: "Edit",
       detail: "\u2318\u21e7Z",
       keywords: "again repeat",
       run: () => actions.redo(),
@@ -220,7 +220,7 @@ function selectionCommands(context: PaletteContext): PaletteCommand[] {
       id: "selection:open-note",
       label: "Open note",
       icon: "file-text",
-      section: "Actions",
+      section: "Selection",
       keywords: "markdown edit source text",
       run: () => actions.openNote(selection[0]),
     });
@@ -231,7 +231,7 @@ function selectionCommands(context: PaletteContext): PaletteCommand[] {
       id: "selection:export",
       label: context.hasSystem ? "Export to Downloads" : "Save to device",
       icon: "download",
-      section: "Actions",
+      section: "Selection",
       detail: one ? "⌘E" : count,
       keywords: "save copy download file share",
       run: () => actions.exportSelection(selection),
@@ -246,7 +246,7 @@ function selectionCommands(context: PaletteContext): PaletteCommand[] {
       id: "selection:reveal",
       label: context.hasSystem ? "Reveal in Finder" : "Open file",
       icon: context.hasSystem ? "folder" : "file",
-      section: "Actions",
+      section: "Selection",
       keywords: "finder show file folder disk open",
       run: () => actions.reveal(selection[0]),
     });
@@ -260,7 +260,7 @@ function selectionCommands(context: PaletteContext): PaletteCommand[] {
       id: "selection:move",
       label: "Move to grid",
       icon: "corner-up-right",
-      section: "Actions",
+      section: "Selection",
       detail: one ? undefined : count,
       keywords: "file assign wall board send",
       stage: {
@@ -271,7 +271,7 @@ function selectionCommands(context: PaletteContext): PaletteCommand[] {
             id: `selection:move:${grid.name}`,
             label: grid.name,
             icon: grid.icon,
-            section: "Actions" as const,
+            section: "Selection" as const,
             run: () => actions.move(selection, grid.name),
           })),
       },
@@ -284,14 +284,14 @@ function selectionCommands(context: PaletteContext): PaletteCommand[] {
         id: `selection:folder:${folder.name}`,
         label: folder.name,
         icon: folder.icon,
-        section: "Actions" as const,
+        section: "Selection" as const,
         run: () => actions.moveToFolder(selection, folder.name),
       })),
       {
         id: "selection:folder:new",
         label: "New folder…",
         icon: "folder-plus",
-        section: "Actions" as const,
+        section: "Selection" as const,
         divider: context.folders.length > 0,
         run: () => actions.newFolder(selection),
       },
@@ -300,7 +300,7 @@ function selectionCommands(context: PaletteContext): PaletteCommand[] {
       id: "selection:folder",
       label: "Move to folder",
       icon: "folder",
-      section: "Actions",
+      section: "Selection",
       detail: one ? undefined : count,
       keywords: "file put pile collect group",
       stage: {
@@ -311,11 +311,24 @@ function selectionCommands(context: PaletteContext): PaletteCommand[] {
     });
   }
 
+  const describe = context.describe;
+  if (describe && !describe.running) {
+    items.push({
+      id: "describe:selected",
+      label: "Describe",
+      icon: "sparkles",
+      section: "Selection",
+      detail: one ? undefined : count,
+      keywords: DESCRIBE_WORDS,
+      stage: depthStage("Describe selected", selection, (depth) => actions.describeSelected(selection, depth)),
+    });
+  }
+
   items.push({
     id: "selection:delete",
     label: "Delete",
     icon: "trash-2",
-    section: "Actions",
+    section: "Selection",
     detail: count,
     destructive: true,
     keywords: "remove trash bin",
@@ -528,7 +541,7 @@ function captureCommands(context: PaletteContext): PaletteCommand[] {
     },
     {
       id: "capture:archive-all",
-      label: "Archive all clipping media",
+      label: "Archive media",
       icon: "hard-drive-download",
       section: "Capture",
       keywords: "download local backup repair missing",
@@ -538,7 +551,7 @@ function captureCommands(context: PaletteContext): PaletteCommand[] {
       id: "view:select-all",
       label: "Select all",
       icon: "box-select",
-      section: "Capture",
+      section: "Edit",
       detail: "⌘A",
       keywords: "everything whole wall",
       run: () => actions.selectAll(),
@@ -547,7 +560,7 @@ function captureCommands(context: PaletteContext): PaletteCommand[] {
       id: "view:reset-zoom",
       label: "Reset zoom",
       icon: "maximize",
-      section: "Capture",
+      section: "Edit",
       detail: "⌘0",
       keywords: "fit zoom out home view camera",
       run: () => actions.resetZoom(),
@@ -555,13 +568,12 @@ function captureCommands(context: PaletteContext): PaletteCommand[] {
   ];
 }
 
-/** In section order, which is the order the palette shows them in. */
 const DESCRIBE_WORDS = "claude ai tag caption categorize label text ocr";
 
 const DEPTHS: Array<{ depth: Depth; label: string; icon: string; detail: string }> = [
   { depth: "broad", label: "Broad", icon: "signal-low", detail: "1–2 general labels" },
   { depth: "standard", label: "Standard", icon: "signal-medium", detail: "up to 4 labels" },
-  { depth: "specific", label: "Specific", icon: "signal-high", detail: "up to 6, names the thing itself" },
+  { depth: "specific", label: "Specific", icon: "signal-high", detail: "up to 6 labels" },
 ];
 
 /** The depth choice a describe row opens, over the clippings it will describe. */
@@ -575,7 +587,7 @@ function depthStage(title: string, subject: string[], run: (depth: Depth) => voi
         id: `describe:depth:${d.depth}`,
         label: d.label,
         icon: d.icon,
-        section: "Actions",
+        section: "Describe",
         detail: d.detail,
         keywords: `${d.depth} labels detail deep`,
         run: () => run(d.depth),
@@ -603,7 +615,7 @@ function reviewStage(review: ReviewView, actions: PaletteActions): PaletteStage 
         id: `describe:term:${t.term}`,
         label: t.term,
         icon: "tag",
-        section: "Actions",
+        section: "Describe",
         ...(t.ticked ? { detailIcon: "check" } : { detail: "new" }),
         keywords: t.definition,
         keepOpen: true,
@@ -619,7 +631,7 @@ function reviewStage(review: ReviewView, actions: PaletteActions): PaletteStage 
           id: "describe:next",
           label: "Next clip",
           icon: "arrow-right",
-          section: "Actions",
+          section: "Describe",
           detail: "⇥",
           keepOpen: true,
           run: () => actions.stepReview(1),
@@ -630,7 +642,7 @@ function reviewStage(review: ReviewView, actions: PaletteActions): PaletteStage 
           id: "describe:previous",
           label: "Previous clip",
           icon: "arrow-left",
-          section: "Actions",
+          section: "Describe",
           detail: "⇧⇥",
           keepOpen: true,
           run: () => actions.stepReview(-1),
@@ -638,17 +650,18 @@ function reviewStage(review: ReviewView, actions: PaletteActions): PaletteStage 
       }
       after({
         id: "describe:apply",
-        label: `Apply all reviewed (${count(review.counts.labels, "label", "labels")} on ${count(review.counts.clips, "clip", "clips")})`,
+        label: "Apply",
         icon: "check-check",
-        section: "Actions",
+        section: "Describe",
+        detail: `${count(review.counts.labels, "label", "labels")} · ${count(review.counts.clips, "clip", "clips")}`,
         run: () => actions.applySuggestions(),
       });
       rows.push(
         {
           id: "describe:discard-clip",
-          label: "Discard this clip's suggestions",
+          label: "Discard",
           icon: "x",
-          section: "Actions",
+          section: "Describe",
           detail: "⇧⌫",
           destructive: true,
           divider: true,
@@ -657,9 +670,10 @@ function reviewStage(review: ReviewView, actions: PaletteActions): PaletteStage 
         },
         {
           id: "describe:discard-all",
-          label: "Discard all suggestions",
+          label: "Discard all",
           icon: "trash-2",
-          section: "Actions",
+          section: "Describe",
+          detail: count(review.total, "clip", "clips"),
           destructive: true,
           run: () => actions.discardAll(),
         }
@@ -672,7 +686,7 @@ function reviewStage(review: ReviewView, actions: PaletteActions): PaletteStage 
 function describeCommands(context: PaletteContext): PaletteCommand[] {
   const describe = context.describe;
   if (!describe) return [];
-  const { actions, selection } = context;
+  const { actions } = context;
   const items: PaletteCommand[] = [];
 
   if (describe.running) {
@@ -680,7 +694,7 @@ function describeCommands(context: PaletteContext): PaletteCommand[] {
       id: "describe:stop",
       label: "Stop describing",
       icon: "square",
-      section: "Actions",
+      section: "Describe",
       detail: `${describe.done} of ${describe.total}`,
       keywords: `${DESCRIBE_WORDS} cancel`,
       run: () => actions.stopDescribing(),
@@ -689,9 +703,9 @@ function describeCommands(context: PaletteContext): PaletteCommand[] {
     if (describe.uncategorized.length > 0) {
       items.push({
         id: "describe:uncategorized",
-        label: "Describe uncategorized clippings",
+        label: "Describe uncategorized",
         icon: "sparkles",
-        section: "Actions",
+        section: "Describe",
         detail: String(describe.uncategorized.length),
         keywords: DESCRIBE_WORDS,
         stage: depthStage("Describe uncategorized", describe.uncategorized, (depth) =>
@@ -699,22 +713,13 @@ function describeCommands(context: PaletteContext): PaletteCommand[] {
         ),
       });
     }
-    if (selection.length > 0) {
-      items.push({
-        id: "describe:selected",
-        label: `Describe selected (${selection.length})`,
-        icon: "sparkles",
-        section: "Actions",
-        keywords: DESCRIBE_WORDS,
-        stage: depthStage("Describe selected", selection, (depth) => actions.describeSelected(selection, depth)),
-      });
-    }
     if (describe.failed > 0) {
       items.push({
         id: "describe:retry",
-        label: `Retry ${describe.failed} failed`,
+        label: "Retry failed",
         icon: "rotate-ccw",
-        section: "Actions",
+        section: "Describe",
+        detail: String(describe.failed),
         keywords: `${DESCRIBE_WORDS} describe again`,
         run: () => actions.retryDescribeFailed(),
       });
@@ -725,9 +730,10 @@ function describeCommands(context: PaletteContext): PaletteCommand[] {
   if (describe.review && !describe.running) {
     items.push({
       id: "describe:review",
-      label: `Review suggested categories (${count(describe.review.total, "clip", "clips")})`,
+      label: "Review suggestions",
       icon: "list-checks",
-      section: "Actions",
+      section: "Describe",
+      detail: count(describe.review.total, "clip", "clips"),
       keywords: `${DESCRIBE_WORDS} new categories approve`,
       stage: reviewStage(describe.review, actions),
     });
@@ -735,13 +741,17 @@ function describeCommands(context: PaletteContext): PaletteCommand[] {
   return items;
 }
 
+/**
+ * In section order, which is the order the palette shows them in. Undo and
+ * Redo come ahead of Select all and Reset zoom, which share their section.
+ */
 export function buildCommands(context: PaletteContext): PaletteCommand[] {
   return [
-    ...historyCommands(context),
     ...selectionCommands(context),
     ...describeCommands(context),
     ...gridCommands(context),
     ...filterCommands(context),
+    ...historyCommands(context),
     ...captureCommands(context),
   ];
 }

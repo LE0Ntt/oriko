@@ -13,7 +13,8 @@ import { effectiveGrid } from "./spaces";
  * comes first: whichever holds the best single match. Typing "manga" is a
  * search for a clipping and the wall's contents lead; typing "delete" is a
  * search for a verb and the actions lead. With no query at all every score is
- * zero, so the sections fall back to their declared order.
+ * zero, so the sections fall back to their declared order, and the clippings
+ * wait for a query to answer.
  */
 
 export interface PaletteRow {
@@ -66,7 +67,7 @@ const MIN_VALUE_QUERY = 2;
 const VALUE_LIMIT = 8;
 
 /** Declared order, used when the query cannot separate two sections. */
-const SECTION_ORDER = ["Actions", "Grids", "Filters", "Capture", CLIPPINGS_SECTION];
+const SECTION_ORDER = ["Selection", "Describe", "Grids", "Filters", "Edit", "Capture", CLIPPINGS_SECTION];
 
 function sectionRank(section: string): number {
   const index = SECTION_ORDER.indexOf(section);
@@ -135,10 +136,15 @@ export function searchPalette(
     }
   }
 
-  const found = rank(query, clippings, (record) => ({
-    primary: record.title,
-    secondary: record.haystack,
-  }));
+  // Nothing typed is nothing searched for: the opening list is what you can
+  // do, and the clippings join it once a query has something to match.
+  const found =
+    query.trim() === ""
+      ? []
+      : rank(query, clippings, (record) => ({
+          primary: record.title,
+          secondary: record.haystack,
+        }));
 
   // Capped after ranking, so what survives is the best of the pile rather
   // than whichever thirty happened to be indexed first.
