@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   BATCH_SCHEMA,
   SYSTEM_PROMPT,
+  batchContent,
   batchMessage,
   childEnv,
   claudeArgs,
@@ -60,6 +61,13 @@ describe("claudeArgs", () => {
 });
 
 describe("batchMessage", () => {
+  it("sends the same content the API engine sends", () => {
+    const jobs = [job({ id: 0 }), job({ id: 1, image: null, title: "B" })];
+    expect(parse(batchMessage(jobs, ["design"], "specific")).message.content).toEqual(
+      batchContent(jobs, ["design"], "specific")
+    );
+  });
+
   it("labels each clipping, then sends its image and note text, then the instructions", () => {
     const line = batchMessage(
       [job({ id: 0, title: "Golf" }), job({ id: 1, image: null, title: "Rice" })],
@@ -143,18 +151,52 @@ describe("parseRun", () => {
   it("reports a run that ended without a result line", () => {
     expect(parseRun("")).toMatchObject({ ok: false, failure: "error" });
   });
+
+  it("recognises an ANTHROPIC_API_KEY with no credit behind it", () => {
+    // Real output: Claude Code billing the environment's key, which had none.
+    expect(parseRun(fixture("billing-error"))).toMatchObject({ ok: false, failure: "no-credit" });
+  });
+
+  it("recognises Anthropic billing the run as a third-party app", () => {
+    // The answer some claude -p runs got in April 2026.
+    const stdout = JSON.stringify({
+      type: "result",
+      is_error: true,
+      result: "Third-party apps now draw from your extra usage, not your plan limits.",
+    });
+    expect(parseRun(stdout)).toMatchObject({ ok: false, failure: "third-party" });
+  });
+});
+
+describe("BATCH_SCHEMA", () => {
+  it("closes every object, as the Messages API's structured output requires", () => {
+    const open: string[] = [];
+    const walk = (node: unknown, at: string): void => {
+      if (!node || typeof node !== "object") return;
+      const n = node as Record<string, unknown>;
+      if (n.type === "object" && n.additionalProperties !== false) open.push(at);
+      for (const [key, value] of Object.entries(n)) walk(value, `${at}.${key}`);
+    };
+    walk(BATCH_SCHEMA, "$");
+    expect(open).toEqual([]);
+  });
 });
 
 describe("childEnv", () => {
-  it("drops the API key and puts the tool's folder and Homebrew on PATH", () => {
+  it("keeps the API key and puts the tool's folder and Homebrew on PATH", () => {
     const env = childEnv(
       { PATH: "/usr/bin:/opt/homebrew/bin", ANTHROPIC_API_KEY: "sk-x", HOME: "/Users/t" },
       "/Users/t/.local/bin",
       ":"
     );
-    expect("ANTHROPIC_API_KEY" in env).toBe(false);
+    expect(env.ANTHROPIC_API_KEY).toBe("sk-x");
     expect(env.PATH).toBe("/Users/t/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin");
     expect(env.HOME).toBe("/Users/t");
+  });
+
+  it("drops the API key only when the user asked to use their Claude login", () => {
+    const env = childEnv({ PATH: "/usr/bin", ANTHROPIC_API_KEY: "sk-x" }, "/t", ":", true);
+    expect("ANTHROPIC_API_KEY" in env).toBe(false);
   });
 
   it("only adds the tool's folder on Windows", () => {

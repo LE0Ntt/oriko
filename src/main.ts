@@ -38,7 +38,10 @@ import { ConfirmSweepModal } from "./confirm";
 import { findOrphans, removeMedia, staleKeys } from "./sweep";
 import { OrikoSettingTab } from "./settings-tab";
 import { OrikoView, VIEW_TYPE_GRID } from "./view";
+import { ApiKeyEngine } from "./api-engine";
 import { ClaudeCodeEngine, claudeAvailable } from "./claude-engine";
+import { SwitchingEngine, effectiveEngine, engineReady } from "./core/engines";
+import type { EngineKind } from "./core/engines";
 import { DescribeService } from "./describe-service";
 
 export default class OrikoPlugin extends Plugin {
@@ -119,7 +122,13 @@ export default class OrikoPlugin extends Plugin {
     await this.posts.load();
     this.describer = new DescribeService(
       this.app,
-      new ClaudeCodeEngine(),
+      new SwitchingEngine(
+        {
+          "claude-code": new ClaudeCodeEngine(() => this.settings.describePreferLogin),
+          "api-key": new ApiKeyEngine(() => this.describeKey()),
+        },
+        () => this.describeEngine()
+      ),
       this.manifest.dir ?? `${this.app.vault.configDir}/plugins/oriko`,
       () => this.index.records(),
       (path) => this.index.get(path),
@@ -526,9 +535,29 @@ export default class OrikoPlugin extends Plugin {
     this.registerEvent(this.app.vault.on("create", (file) => void reread(file.path)));
   }
 
-  /** Describe is offered on desktop, when switched on, and once Claude Code is found. */
+  /** Describe is offered on desktop, when switched on, and once its engine can run. */
   describeAvailable(): boolean {
-    return this.settings.describeEnabled && Platform.isDesktopApp && claudeAvailable();
+    if (!this.settings.describeEnabled || !Platform.isDesktopApp) return false;
+    const engine = this.describeEngine();
+    return engineReady({
+      enabled: true,
+      desktop: true,
+      engine,
+      claudeFound: engine === "claude-code" && claudeAvailable(),
+      hasKey: engine === "api-key" && this.describeKey() !== null,
+    });
+  }
+
+  /** The engine Describe runs on: the user's pick, or Claude Code when installed until they pick. */
+  describeEngine(): EngineKind {
+    return effectiveEngine(this.settings.describeEngine, Platform.isDesktopApp && claudeAvailable());
+  }
+
+  /** The user's Anthropic API key, from Obsidian's keychain on this device. */
+  describeKey(): string | null {
+    const name = this.settings.describeKeySecret;
+    const key = name ? this.app.secretStorage.getSecret(name) : null;
+    return key?.trim() || null;
   }
 
   async loadSettings(): Promise<void> {

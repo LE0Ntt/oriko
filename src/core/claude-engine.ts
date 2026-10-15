@@ -43,7 +43,18 @@ export interface RawResult {
  */
 export type Depth = "broad" | "standard" | "specific";
 
-export type EngineFailure = "not-logged-in" | "usage-limit" | "rate-limit" | "not-found" | "error";
+export type EngineFailure =
+  | "not-logged-in"
+  | "usage-limit"
+  | "rate-limit"
+  | "not-found"
+  /** Anthropic billed a Claude Code run as a third-party app. */
+  | "third-party"
+  /** The API key was refused. */
+  | "key-rejected"
+  /** The API account has no credit left. */
+  | "no-credit"
+  | "error";
 
 export type RunOutcome =
   | { ok: true; results: RawResult[] }
@@ -66,6 +77,7 @@ const ITEM_SCHEMA = {
         type: "object",
         properties: { term: { type: "string" }, definition: { type: "string" } },
         required: ["term", "definition"],
+        additionalProperties: false,
       },
     },
     fallback: { type: "string" },
@@ -73,12 +85,15 @@ const ITEM_SCHEMA = {
     media_text: { type: "string" },
   },
   required: ["id", "categories", "proposals", "fallback", "caption", "media_text"],
+  additionalProperties: false,
 };
 
 export const BATCH_SCHEMA = {
   type: "object",
   properties: { items: { type: "array", items: ITEM_SCHEMA } },
   required: ["items"],
+  // Closed, as the Messages API's structured output requires of every object.
+  additionalProperties: false,
 };
 
 /**
@@ -153,9 +168,14 @@ function instructions(vocabulary: string[], depth: Depth): string {
   ].join("\n");
 }
 
-/** The batch as the single stream-json user message Claude Code reads on stdin. */
-export function batchMessage(jobs: DescribeJob[], vocabulary: string[], depth: Depth = "standard"): string {
-  const content: unknown[] = [];
+/** A content block of the one user message a batch is sent as, by either engine. */
+export type BatchBlock =
+  | { type: "text"; text: string }
+  | { type: "image"; source: { type: "base64"; media_type: "image/jpeg"; data: string } };
+
+/** What a batch says: each clipping by number, its picture and note text, then the instructions. */
+export function batchContent(jobs: DescribeJob[], vocabulary: string[], depth: Depth = "standard"): BatchBlock[] {
+  const content: BatchBlock[] = [];
   for (const job of jobs) {
     content.push({ type: "text", text: `Clipping ${job.id}:` });
     if (job.image) {
@@ -167,6 +187,12 @@ export function batchMessage(jobs: DescribeJob[], vocabulary: string[], depth: D
     content.push({ type: "text", text: noteText(job) });
   }
   content.push({ type: "text", text: instructions(vocabulary, depth) });
+  return content;
+}
+
+/** The batch as the single stream-json user message Claude Code reads on stdin. */
+export function batchMessage(jobs: DescribeJob[], vocabulary: string[], depth: Depth = "standard"): string {
+  const content = batchContent(jobs, vocabulary, depth);
   return JSON.stringify({ type: "user", message: { role: "user", content } }) + "\n";
 }
 
@@ -213,6 +239,7 @@ export function parseRun(stdout: string): RunOutcome {
   let result: StreamLine | null = null;
   let limited = false;
   let authFailed = false;
+  let billingFailed = false;
 
   for (const raw of stdout.split("\n")) {
     const trimmed = raw.trim();
@@ -228,6 +255,7 @@ export function parseRun(stdout: string): RunOutcome {
       if (!status.startsWith("allowed")) limited = true;
     }
     if (line.type === "assistant" && line.error === "authentication_failed") authFailed = true;
+    if (line.type === "assistant" && line.error === "billing_error") billingFailed = true;
     if (line.type === "result") result = line;
   }
 
@@ -236,6 +264,15 @@ export function parseRun(stdout: string): RunOutcome {
   const message = text(result.result);
   const answer = result.structured_output;
   if (result.is_error || answer === undefined || answer === null || typeof answer !== "object") {
+    // Anthropic's answer when it counts a run as a third-party app. Never
+    // worked around: the run stops and says so.
+    if (/third-party apps? now draw/i.test(message)) {
+      return { ok: false, failure: "third-party", message };
+    }
+    // Claude Code billing an ANTHROPIC_API_KEY that has no credit behind it.
+    if (billingFailed || /credit balance is too low/i.test(message)) {
+      return { ok: false, failure: "no-credit", message };
+    }
     if (authFailed || /not logged in|\/login/i.test(message)) {
       return { ok: false, failure: "not-logged-in", message };
     }
@@ -251,13 +288,15 @@ export function parseRun(stdout: string): RunOutcome {
     return { ok: false, failure: "error", message: message || "Claude Code gave no structured answer" };
   }
 
+  return { ok: true, results: resultsFrom(answer) };
+}
+
+/** The clippings in a structured answer, from either engine. A lone item without a list is id 0. */
+export function resultsFrom(answer: object): RawResult[] {
   const items = Array.isArray((answer as { items?: unknown }).items)
     ? (answer as { items: unknown[] }).items
     : [answer];
-  const results = items
-    .map((item, index) => toResult(item, index))
-    .filter((r): r is RawResult => r !== null);
-  return { ok: true, results };
+  return items.map((item, index) => toResult(item, index)).filter((r): r is RawResult => r !== null);
 }
 
 /**
@@ -291,18 +330,22 @@ export function spawnOptions(
 }
 
 /**
- * The environment Claude Code starts in: the desktop session's own, without
- * ANTHROPIC_API_KEY so it uses its own login (the subscription), and with its
+ * The environment Claude Code starts in: the desktop session's own, with its
  * folder and Homebrew's on PATH, because Electron on macOS starts without the
  * shell profile that puts them there and an npm-installed claude needs node.
+ *
+ * ANTHROPIC_API_KEY stays, so Claude Code bills it as it would anywhere else.
+ * It is dropped only when the user has asked Describe to use their Claude
+ * login, a switch settings show whenever the key is there to drop.
  */
 export function childEnv(
   base: Record<string, string | undefined>,
   toolDir: string,
-  delimiter: string
+  delimiter: string,
+  preferLogin = false
 ): Record<string, string | undefined> {
   const env: Record<string, string | undefined> = { ...base };
-  delete env.ANTHROPIC_API_KEY;
+  if (preferLogin) delete env.ANTHROPIC_API_KEY;
   const key = delimiter === ";" && !("PATH" in env) ? "Path" : "PATH";
   const extra = delimiter === ":" ? [toolDir, "/opt/homebrew/bin", "/usr/local/bin"] : [toolDir];
   const dirs = [...extra, ...(env[key] ?? "").split(delimiter)].filter(

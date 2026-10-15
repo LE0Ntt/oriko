@@ -45,6 +45,9 @@ export function claudeAvailable(): boolean {
 export class ClaudeCodeEngine implements DescribeEngine {
   private children = new Set<ChildProcess>();
 
+  /** `preferLogin` is the user's switch to have Claude Code skip an ANTHROPIC_API_KEY it would otherwise bill. */
+  constructor(private preferLogin: () => boolean) {}
+
   run(jobs: DescribeJob[], vocabulary: string[], timeoutMs: number, depth: Depth): Promise<RunOutcome> {
     const command = claudePath();
     const cp = nodeRequire("child_process") as SpawnModule | null;
@@ -65,7 +68,7 @@ export class ClaudeCodeEngine implements DescribeEngine {
         child = cp.spawn(
           command,
           claudeArgs(),
-          spawnOptions(os.tmpdir(), childEnv(env, path.dirname(command), delimiter))
+          spawnOptions(os.tmpdir(), childEnv(env, path.dirname(command), delimiter, this.preferLogin()))
         );
       } catch (error) {
         resolve({ ok: false, failure: "error", message: String(error) });

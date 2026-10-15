@@ -54,7 +54,7 @@ The full-screen view zooms and pans the original, shows the picture's own color 
 
 ## The Palette
 
-⌘K, or **Search this grid** from the command palette, opens one input over the dimmed wall. It lists the things you can do, grouped under Selection, Grids, Filters, Edit and Capture, and once you start typing it also finds filter values and every clipping in the vault by name, each with a preview. A command that needs an argument opens a second stage in place, so moving four clippings to another grid is one gesture.
+⌘K, or **Search this grid** from the command palette, opens one input over the dimmed wall. It lists the things you can do, grouped under Selection, Describe, Grids, Filters, Edit and Capture, and once you start typing it also finds filter values and every clipping in the vault by name, each with a preview. A command that needs an argument opens a second stage in place, so moving four clippings to another grid is one gesture.
 
 Beyond the palette, ⌘Z undoes the last move, edit, or folder and grid change and ⌘⇧Z redoes it, ⌘1 through ⌘9 switch grids in their stored order, ⌘N clips whatever is on the clipboard, ⌘E exports the selection, and the arrow keys move between tiles.
 
@@ -70,6 +70,17 @@ Folders are piles inside a grid. Select some tiles and choose **Move to folder**
 
 Any frontmatter property can become a filter. Enable properties under **Settings → Filter properties**, then slice the wall from the filter button: categories, status, domain, dates, whatever your clippings carry.
 
+## Describe
+
+A pasted screenshot or a reel with no caption is hard to find again. **Describe** looks at the picture, or a few frames of a video, along with the note's text, and writes categories, a one-line `caption` and any text in the picture (`media_text`) into the frontmatter, so the palette finds the clip by what is in it. Turn it on under **Settings → Oriko → Describe clippings** on desktop, then run **Describe uncategorized** from ⌘K, or select tiles and choose **Describe**. Categories it suggests that are not on your wall yet wait in **Review suggestions** until you approve them.
+
+Describe runs on your own Claude, and you pick which:
+
+- **Claude Code on this computer.** Describe runs the Claude Code you installed and signed into, so it counts against your own Claude plan. Anthropic may count it as third-party app usage. Oriko never sees your login.
+- **Anthropic API key.** Describe calls Claude Haiku with a key from the [Claude Console](https://platform.claude.com), billed to your API account: at Haiku's prices, roughly a dollar per 5,000 clippings. Link the key from Obsidian's keychain; it never goes into Oriko's settings file.
+
+Either way you pay Anthropic directly, and Oriko takes nothing. Oriko is independent of Anthropic.
+
 ## Downloads
 
 Remote media is copied into your attachment folder under a name derived from its URL, so the same asset shared by several clippings is stored once. Posters and thumbnails are generated for videos and GIFs, and downloads above a size cap are skipped.
@@ -80,11 +91,11 @@ Remote media is copied into your attachment folder under a name derived from its
 
 **Cleanup.** **Remove orphaned media** lists files no clipping references and moves them to the trash after a confirmation.
 
-**The note body is never touched.** Oriko writes a note's content once, when it creates it. After that it edits only frontmatter, through Obsidian's own frontmatter API: the `grid` key when you move a clipping, and the properties you edit yourself from the wall.
+**The note body is never touched.** Oriko writes a note's content once, when it creates it. After that it edits only frontmatter, through Obsidian's own frontmatter API: the `grid` key when you move a clipping, the labels Describe writes, and the properties you edit yourself from the wall.
 
 ## Privacy
 
-Oriko fetches only what you clip: the page you pasted and the media it references. The optional community resolvers send X and Instagram URLs to public mirrors (fxtwitter, kkinstagram) to reach video those sites hide; turn them off in settings to stay first party. There are no analytics and nothing is reported anywhere.
+Oriko fetches only what you clip: the page you pasted and the media it references. The optional community resolvers send X and Instagram URLs to public mirrors (fxtwitter, kkinstagram) to reach video those sites hide; turn them off in settings to stay first party. When you run Describe, the clipping's picture or video frames and its note text go to Anthropic, through your own Claude Code or your own API key, and nowhere else. There are no analytics and nothing is reported anywhere.
 
 ## Installation
 

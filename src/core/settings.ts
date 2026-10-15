@@ -1,3 +1,4 @@
+import type { EngineKind } from "./engines";
 import type { DensityStage } from "./density";
 import type { PostSite } from "./posts";
 import type { GridLook, LookScope } from "./look";
@@ -116,8 +117,14 @@ export interface OrikoSettings {
   ytdlpPath: string;
   /** Full path to ffmpeg, "" to discover it on PATH and in common installs. */
   ffmpegPath: string;
-  /** Whether the palette offers Describe, which runs the user's own Claude Code. */
+  /** Whether the palette offers Describe. */
   describeEnabled: boolean;
+  /** Which of the user's own engines Describe runs on; "" until they pick, which means Claude Code when installed. */
+  describeEngine: EngineKind | "";
+  /** Claude Code bills ANTHROPIC_API_KEY when Obsidian's environment has one; this has it use the Claude login. */
+  describePreferLogin: boolean;
+  /** The name of the secret in Obsidian's keychain that holds the user's Anthropic API key. */
+  describeKeySecret: string;
   /** Full path to Claude Code, "" to discover it on PATH and in common installs. */
   claudePath: string;
 }
@@ -151,5 +158,8 @@ export const DEFAULT_SETTINGS: OrikoSettings = {
   ytdlpPath: "",
   ffmpegPath: "",
   describeEnabled: false,
+  describeEngine: "",
+  describePreferLogin: false,
+  describeKeySecret: "",
   claudePath: "",
 };

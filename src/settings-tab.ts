@@ -1,8 +1,9 @@
-import { AbstractInputSuggest, App, PluginSettingTab, Setting } from "obsidian";
+import { AbstractInputSuggest, App, Platform, PluginSettingTab, SecretComponent, Setting } from "obsidian";
 import type { SettingDefinitionItem } from "obsidian";
 import { slotCandidates, surveyProperties } from "./core/facet-catalog";
 import { facetLabel } from "./core/filter";
 import { isCardMode } from "./core/settings";
+import { hostEnv } from "./convert";
 import { OrikoView, VIEW_TYPE_GRID } from "./view";
 import type OrikoPlugin from "./main";
 
@@ -255,14 +256,51 @@ export class OrikoSettingTab extends PluginSettingTab {
             control: { type: "text", key: "ffmpegPath" },
           },
           {
-            name: "Describe with Claude Code",
-            desc: "Adds Describe to the palette on desktop. It sends a clipping's picture and note text to your own Claude Code install, which uses your Claude subscription, and writes back categories, a caption and the text in the picture.",
+            name: "Describe clippings",
+            desc: "Adds Describe to the palette. Describe sends a clipping's picture and note text to Claude and writes back categories, a caption and the text in the picture.",
+            aliases: ["claude", "ai", "caption", "labels"],
+            visible: () => Platform.isDesktopApp,
             control: { type: "toggle", key: "describeEnabled" },
           },
           {
+            name: "Describe engine",
+            desc: "Whose Claude does the work. Either way it is your own: you pay Anthropic directly, and Oriko never sees your login.",
+            visible: () => this.describing(),
+            control: {
+              type: "dropdown",
+              key: "describeEngine",
+              options: {
+                "claude-code": "Claude Code on this computer",
+                "api-key": "Anthropic API key",
+              },
+            },
+          },
+          {
             name: "Claude Code path",
-            desc: "Where Claude Code lives. Leave it empty and Oriko goes looking the same way.",
+            desc: "Describe runs the Claude Code you installed and signed into, so it counts against your own Claude plan, and Anthropic may count it as third-party app usage. Leave the path empty and Oriko goes looking the same way.",
+            visible: () => this.describing("claude-code"),
             control: { type: "text", key: "claudePath" },
+          },
+          {
+            name: "Use my Claude login",
+            desc: "Obsidian started with an ANTHROPIC_API_KEY, which Claude Code bills ahead of your Claude login. Turn this on to have Describe use your Claude plan.",
+            visible: () => this.describing("claude-code") && Boolean(hostEnv().env.ANTHROPIC_API_KEY),
+            control: { type: "toggle", key: "describePreferLogin" },
+          },
+          {
+            name: "Anthropic API key",
+            desc: "Describe calls Claude Haiku with your own key from the Claude Console, billed to your API account. Link it from Obsidian's keychain, or add it there; it stays out of Oriko's settings file, which syncs with the vault.",
+            visible: () => this.describing("api-key"),
+            render: (setting) => {
+              setting.addComponent((el) =>
+                new SecretComponent(this.app, el)
+                  .setValue(this.plugin.settings.describeKeySecret)
+                  .onChange(async (name) => {
+                    this.plugin.settings.describeKeySecret = name;
+                    await this.plugin.saveSettings();
+                  })
+              );
+            },
           },
         ],
       },
@@ -392,8 +430,15 @@ export class OrikoSettingTab extends PluginSettingTab {
     ];
   }
 
+  /** Whether Describe's own rows show: switched on, on desktop, and on the given engine if one is named. */
+  private describing(engine?: "claude-code" | "api-key"): boolean {
+    if (!Platform.isDesktopApp || !this.plugin.settings.describeEnabled) return false;
+    return engine === undefined || this.plugin.describeEngine() === engine;
+  }
+
   getControlValue(key: string): unknown {
     if (key === "maxSizeMb") return Math.round(this.plugin.settings.maxBytes / 1048576);
+    if (key === "describeEngine") return this.plugin.describeEngine();
     return (this.plugin.settings as unknown as Record<string, unknown>)[key];
   }
 
@@ -428,6 +473,17 @@ export class OrikoSettingTab extends PluginSettingTab {
         settings[key] = isCardMode(value) ? value : "always";
         // Turning a card on asks the sites about anything not yet looked up.
         return this.plugin.saveSettings().then(() => this.plugin.scheduleLookups(0));
+      }
+      case "describeEnabled": {
+        settings.describeEnabled = value === true;
+        // The first time on, the engine in force is written down, so a later
+        // install or removal of Claude Code never switches it behind the user.
+        if (settings.describeEnabled && !settings.describeEngine) settings.describeEngine = this.plugin.describeEngine();
+        return this.plugin.saveSettings().then(() => this.update());
+      }
+      case "describeEngine": {
+        settings.describeEngine = value === "api-key" ? "api-key" : "claude-code";
+        return this.plugin.saveSettings().then(() => this.update());
       }
       case "gridLookScope": {
         settings.gridLookScope = value === "grid" ? "grid" : "all";

@@ -1,0 +1,2 @@
+{"type": "assistant", "error": "billing_error", "message": {"role": "assistant", "content": [{"type": "text", "text": "Credit balance is too low"}]}}
+{"type": "result", "subtype": "success", "is_error": true, "result": "Credit balance is too low"}

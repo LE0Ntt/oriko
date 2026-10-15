@@ -172,6 +172,23 @@ describe("DescribeRunner", () => {
     expect(h.notices.at(-1)).toBe(HALTS["not-found"]);
   });
 
+  it("halts at once on a refused key, an empty account, or third-party billing", async () => {
+    for (const failure of ["key-rejected", "no-credit", "third-party"] as const) {
+      const h = harness({
+        paths: ["a.md", "b.md"],
+        run: async () => ({ ok: false, failure, message: failure }),
+      });
+      await h.runner.describe(["a.md", "b.md"], h.writer);
+      expect(h.events.filter((e) => e.startsWith("run:"))).toHaveLength(1);
+      expect(h.notices.at(-1)).toBe(HALTS[failure]);
+    }
+  });
+
+  it("points a stopped Claude Code run at the API-key engine", () => {
+    expect(HALTS["third-party"]).toMatch(/API key/);
+    expect(HALTS["not-logged-in"]).toMatch(/API key/);
+  });
+
   it("saves suggestions as each batch finishes", async () => {
     const h = harness({
       paths: ["a.md", "b.md"],

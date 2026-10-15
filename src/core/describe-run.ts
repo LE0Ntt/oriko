@@ -78,11 +78,26 @@ export const RUNNER_DEFAULTS: RunnerOptions = {
   singleTimeoutMs: SINGLE_TIMEOUT_MS,
 };
 
-type Halt = "not-logged-in" | "usage-limit" | "rate-limit" | "not-found";
+type Halt = "not-logged-in" | "usage-limit" | "rate-limit" | "not-found" | "third-party" | "key-rejected" | "no-credit";
+
+/** Failures that would fail every batch after them, so the run stops at the first. */
+const HALTING: ReadonlySet<string> = new Set<Halt>([
+  "not-logged-in",
+  "usage-limit",
+  "not-found",
+  "third-party",
+  "key-rejected",
+  "no-credit",
+]);
 
 export const HALTS: Record<Halt, string> = {
   "not-logged-in":
-    "Oriko: Claude Code is not logged in. Run claude in a terminal, sign in with /login, then describe again.",
+    "Oriko: Claude Code says it is not signed in. Run claude in a terminal and sign in with /login, or switch Describe to an API key in Settings → Oriko.",
+  "third-party":
+    "Oriko: Anthropic is counting Describe as third-party app usage, billed from extra usage, so Describe stopped. You can switch Describe to an API key in Settings → Oriko.",
+  "key-rejected": "Oriko: Anthropic rejected the API key. Check it in Settings → Oriko.",
+  "no-credit":
+    "Oriko: the Anthropic API key Describe is billing is out of credit. Describing stopped; what was described is kept. Settings → Oriko shows which key is in use.",
   "usage-limit": "Oriko: your Claude usage limit is reached. Describing stopped; what was described is kept.",
   "rate-limit":
     "Oriko: Claude is limiting requests right now. Describing stopped; what was described is kept. Try again in a few minutes.",
@@ -364,8 +379,9 @@ export class DescribeRunner {
 
   /**
    * One engine call. A rate limit is waited out once; one that outlasts the
-   * wait halts the run, as do a missing login, the usage limit, and a missing
-   * Claude Code. Each of those would fail every clipping that follows.
+   * wait halts the run, as does every failure in HALTING: a missing login or
+   * Claude Code, a usage limit, third-party billing, a refused key or an empty
+   * account. Each of those would fail every clipping that follows.
    */
   private async runJobs(jobs: DescribeJob[], vocabulary: string[], timeoutMs: number): Promise<RunOutcome> {
     const depth = this.request.depth;
@@ -376,12 +392,7 @@ export class DescribeRunner {
       outcome = await this.deps.engine.run(jobs, vocabulary, timeoutMs, depth);
       if (!outcome.ok && outcome.failure === "rate-limit") this.halt("rate-limit");
     }
-    if (
-      !outcome.ok &&
-      (outcome.failure === "not-logged-in" || outcome.failure === "usage-limit" || outcome.failure === "not-found")
-    ) {
-      this.halt(outcome.failure);
-    }
+    if (!outcome.ok && HALTING.has(outcome.failure)) this.halt(outcome.failure as Halt);
     return outcome;
   }
 
