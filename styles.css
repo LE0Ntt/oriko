@@ -789,6 +789,113 @@
   padding: 4px;
 }
 
+/* Describe on the wall: the clip-in-progress card's pill, over a card that
+   keeps its own picture. Named steps only, each one the run really reaches. */
+.pg-describe {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  overflow: hidden;
+  pointer-events: none;
+  transition: opacity 420ms ease;
+}
+
+.pg-describe.is-gone {
+  opacity: 0;
+}
+
+/* While Claude has the clip, a light crosses the card. */
+.pg-describe.is-sweeping::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    100deg,
+    transparent 30%,
+    rgba(255, 255, 255, 0.16) 50%,
+    transparent 70%
+  );
+  transform: translateX(-100%);
+  animation: pg-building-shimmer 1.6s ease-in-out infinite;
+}
+
+.pg-describe:not(.is-busy) .pg-building-text {
+  animation: none;
+  background: none;
+  color: #fff;
+}
+
+.pg-describe.is-landed .pg-building-icon {
+  animation: pg-building-pop 320ms cubic-bezier(0.22, 0.9, 0.28, 1.4);
+}
+
+.pg-describe.is-landed[data-icon="check"] .pg-building-icon .svg-icon path,
+.pg-describe.is-landed[data-icon="check"] .pg-building-icon .svg-icon polyline {
+  stroke-dasharray: 24;
+  stroke-dashoffset: 24;
+  animation: pg-building-draw 420ms ease-out 80ms forwards;
+}
+
+/* The labels a clip gained pop on one after another, above the pill. */
+.pg-describe-labels {
+  position: absolute;
+  right: 10px;
+  bottom: 40px;
+  left: 10px;
+  display: flex;
+  flex-wrap: wrap-reverse;
+  gap: 4px;
+}
+
+.pg-describe-labels .pg-badge {
+  animation: pg-building-pop 320ms cubic-bezier(0.22, 0.9, 0.28, 1.4) both;
+  animation-delay: calc(160ms + var(--pg-i, 0) * 70ms);
+}
+
+/* The card's own hover pills sit where these do. */
+.pg-tile.is-describing .pg-meta {
+  display: none;
+}
+
+/* A crowd of clips at once drops the blur and the shimmering words, which
+   each cost a repaint every frame under a scroll. */
+.pg-viewport.is-describing-many .pg-describe .pg-building-pill,
+.pg-viewport.is-describing-many .pg-describe .pg-badge {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  background: rgba(20, 20, 24, 0.8);
+}
+
+.pg-viewport.is-describing-many .pg-describe .pg-building-text {
+  animation: none;
+  background: none;
+  color: #fff;
+}
+
+.pg-viewport.is-tiny .pg-describe-labels {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pg-describe.is-sweeping::before,
+  .pg-describe.is-landed .pg-building-icon,
+  .pg-describe-labels .pg-badge {
+    animation: none;
+  }
+
+  .pg-describe .pg-building-text {
+    animation: none;
+    background: none;
+    color: #fff;
+  }
+
+  .pg-describe.is-landed[data-icon="check"] .pg-building-icon .svg-icon path,
+  .pg-describe.is-landed[data-icon="check"] .pg-building-icon .svg-icon polyline {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+}
+
 .pg-marquee {
   position: absolute;
   top: 0;
@@ -1874,6 +1981,122 @@
   border-radius: 19px;
   font-size: 12px;
   font-weight: 500;
+}
+
+/* A Describe run: a ring filling as clips land, then the closing line. */
+.pg-spacebar button.pg-space-describe {
+  gap: 8px;
+  height: 38px;
+  padding: 0 14px 0 10px;
+  border-radius: 19px;
+  font-size: 12px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  animation: pg-building-pop 260ms cubic-bezier(0.22, 0.9, 0.28, 1.2);
+  transition: opacity 260ms ease;
+}
+
+.pg-spacebar button.pg-space-describe.is-hidden {
+  display: none;
+}
+
+.pg-spacebar button.pg-space-describe.is-leaving {
+  opacity: 0;
+}
+
+/* Turning while the run goes, since a batch of ten lands all at once and the
+   ring would otherwise sit still for the length of a call. */
+.pg-describe-ring {
+  flex: none;
+  transform: rotate(-90deg);
+  animation: pg-describe-turn 2.4s linear infinite;
+}
+
+@keyframes pg-describe-turn {
+  to {
+    transform: rotate(270deg);
+  }
+}
+
+.pg-describe-track,
+.pg-describe-fill {
+  fill: none;
+  stroke-width: 2.4;
+}
+
+.pg-describe-track {
+  stroke: var(--text-faint);
+  opacity: 0.35;
+}
+
+.pg-describe-fill {
+  stroke: var(--pg-accent);
+  stroke-linecap: round;
+  transition: stroke-dashoffset 400ms ease;
+}
+
+.pg-space-describe:not(.is-finished) .pg-describe-count {
+  color: transparent;
+  background: linear-gradient(
+    90deg,
+    var(--text-muted) 0%,
+    var(--text-muted) 38%,
+    var(--text-normal) 50%,
+    var(--text-muted) 62%,
+    var(--text-muted) 100%
+  );
+  background-size: 250% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: pg-building-text 1.8s linear infinite;
+}
+
+.pg-describe-done {
+  display: none;
+  color: var(--pg-accent);
+}
+
+.pg-describe-done .svg-icon {
+  width: 16px;
+  height: 16px;
+  stroke-width: 2.4;
+}
+
+.pg-space-describe.is-finished .pg-describe-ring {
+  display: none;
+}
+
+.pg-space-describe.is-finished .pg-describe-done {
+  display: grid;
+  place-items: center;
+  animation: pg-building-pop 320ms cubic-bezier(0.22, 0.9, 0.28, 1.4);
+}
+
+.pg-space-describe.is-finished .pg-describe-done .svg-icon path,
+.pg-space-describe.is-finished .pg-describe-done .svg-icon polyline {
+  stroke-dasharray: 24;
+  stroke-dashoffset: 24;
+  animation: pg-building-draw 420ms ease-out 80ms forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pg-spacebar button.pg-space-describe,
+  .pg-describe-ring,
+  .pg-space-describe.is-finished .pg-describe-done {
+    animation: none;
+  }
+
+  .pg-space-describe:not(.is-finished) .pg-describe-count {
+    animation: none;
+    background: none;
+    color: var(--text-normal);
+  }
+
+  .pg-space-describe.is-finished .pg-describe-done .svg-icon path,
+  .pg-space-describe.is-finished .pg-describe-done .svg-icon polyline {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
 }
 
 .pg-space-icon,

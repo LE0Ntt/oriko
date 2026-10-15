@@ -89,6 +89,7 @@ import { steamAppId } from "./core/steam";
 import { needsDescribing } from "./core/describe";
 import type { FrontmatterWrite } from "./core/editable";
 import type { DescribeWriter } from "./describe-service";
+import { summaryText } from "./core/describing";
 import type { ClipMedia } from "./clip-panel";
 
 
@@ -151,6 +152,8 @@ export class OrikoView extends ItemView {
   private detail: DetailView | null = null;
   private spaceBar: SpaceBar | null = null;
   private palette: Palette | null = null;
+  /** Stops this wall watching Describe runs. */
+  private unwatchDescribe: (() => void) | null = null;
   /** A clipping just made here, to fly to as soon as it has a tile. */
   private pendingReveal: { path: string; until: number } | null = null;
   private onGridKey: ((event: KeyboardEvent) => void) | null = null;
@@ -344,8 +347,14 @@ export class OrikoView extends ItemView {
       onSettings: (x, y) => this.openSettings(x, y),
       onFilter: (x, y) => this.openFilter(x, y),
       onBack: () => this.leaveFolder(),
+      onDescribe: () => this.palette?.open(),
     });
     this.spaceBar.setActive(this.activeGrid());
+    this.unwatchDescribe = this.plugin.describer.watch({
+      status: (path, status) => this.grid?.setDescribeStatus(path, status),
+      progress: (state) => this.spaceBar?.setDescribeProgress(state),
+      finished: (summary) => this.spaceBar?.finishDescribe(summaryText(summary)),
+    });
     this.watchBottomInset();
 
     /*
@@ -847,6 +856,8 @@ export class OrikoView extends ItemView {
     this.onGridKey = null;
     this.palette?.close();
     this.palette = null;
+    this.unwatchDescribe?.();
+    this.unwatchDescribe = null;
     this.spaceBar?.destroy();
     this.spaceBar = null;
     this.observer?.disconnect();

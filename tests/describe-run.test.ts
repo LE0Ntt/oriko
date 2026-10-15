@@ -3,6 +3,7 @@ import { DescribeRunner, HALTS } from "../src/core/describe-run";
 import type { DescribeEngine, DescribeWriter } from "../src/core/describe-run";
 import type { DescribeJob, RawResult, RunOutcome } from "../src/core/claude-engine";
 import type { PendingStore } from "../src/core/describe";
+import { summaryText } from "../src/core/describing";
 import type { FrontmatterWrite } from "../src/core/editable";
 import type { HistoryEntry } from "../src/core/history";
 import type { ClippingRecord } from "../src/core/scan";
@@ -43,6 +44,9 @@ interface Harness {
   writer: DescribeWriter;
   events: string[];
   notices: string[];
+  /** Each clip's steps, as "step:path", with what a landing added. */
+  statuses: string[];
+  progress: Array<string | null>;
   written: Array<[string, FrontmatterWrite]>;
   entries: HistoryEntry[];
 }
@@ -59,6 +63,8 @@ function harness(
 ): Harness {
   const events: string[] = [];
   const notices: string[] = [];
+  const statuses: string[] = [];
+  const progress: Array<string | null> = [];
   const written: Array<[string, FrontmatterWrite]> = [];
   const entries: HistoryEntry[] = [];
   const records = new Map<string, ClippingRecord>();
@@ -94,7 +100,14 @@ function harness(
       wait: async () => {
         events.push("wait");
       },
-      progress: () => undefined,
+      progress: (state) => progress.push(state ? `${state.done}/${state.total}` : null),
+      status: (path, status) =>
+        statuses.push(
+          status.step === "labelled"
+            ? `labelled:${path}:${status.added.join("+")}:${status.review}`
+            : `${status.step}:${path}`
+        ),
+      finished: (summary) => notices.push(`Oriko: ${summaryText(summary)}`),
       notify: (text) => notices.push(text),
     },
     { batchSize: 1, concurrency: 1, rateLimitWaitMs: 0, batchTimeoutMs: 1000, singleTimeoutMs: 1000 }
@@ -108,7 +121,7 @@ function harness(
       }),
     record: (entry) => entries.push(entry),
   };
-  return { runner, writer, events, notices, written, entries };
+  return { runner, writer, events, notices, statuses, progress, written, entries };
 }
 
 const pending = (store: PendingStore): PendingStore => store;
@@ -323,6 +336,73 @@ describe("DescribeRunner", () => {
     expect(h.written.map(([path]) => path)).toEqual(["a.md"]);
     expect(h.entries).toHaveLength(1);
     expect(h.notices.at(-1)).toBe("Oriko: 1 described (stopped)");
+  });
+});
+
+describe("DescribeRunner on the wall", () => {
+  it("marks each clip describing as its call goes out, then labelled with what it added", async () => {
+    const h = harness({ paths: ["a.md", "b.md"] });
+    await h.runner.describe(["a.md", "b.md"], h.writer);
+    expect(h.statuses).toEqual([
+      "describing:a.md",
+      "labelled:a.md:design:0",
+      "describing:b.md",
+      "labelled:b.md:design:0",
+    ]);
+  });
+
+  it("says how many suggestions a clip left for review", async () => {
+    const h = harness({
+      paths: ["a.md"],
+      run: async (jobs) => ({
+        ok: true,
+        results: jobs.map((job) => answer(job.id, { proposals: [{ term: "food", definition: "D" }] })),
+      }),
+    });
+    await h.runner.describe(["a.md"], h.writer, { selected: true });
+    expect(h.statuses.at(-1)).toBe("labelled:a.md:design:1");
+  });
+
+  it("marks a clip failed when no call could describe it", async () => {
+    const h = harness({ paths: ["a.md"], run: async () => ({ ok: false, failure: "error", message: "bad" }) });
+    await h.runner.describe(["a.md"], h.writer);
+    expect(h.statuses.at(-1)).toBe("failed:a.md");
+  });
+
+  it("clears a clip deleted since the run began", async () => {
+    const h = harness({ paths: ["a.md"] });
+    await h.runner.describe(["a.md", "gone.md"], h.writer);
+    expect(h.statuses).toContain("cleared:gone.md");
+  });
+
+  it("clears what was still in flight when the run stops", async () => {
+    let release: (outcome: RunOutcome) => void = () => undefined;
+    const h = harness({
+      paths: ["a.md", "b.md", "c.md"],
+      run: (jobs) =>
+        jobs[0].path === "b.md" ? new Promise<RunOutcome>((resolve) => (release = resolve)) : allGood(jobs),
+      cancelAll: () => release({ ok: false, failure: "error", message: "killed" }),
+    });
+    const running = h.runner.describe(["a.md", "b.md", "c.md"], h.writer);
+    while (!h.events.includes("run:b.md")) await new Promise((r) => setTimeout(r, 0));
+    h.runner.stop();
+    await running;
+    expect(h.statuses.slice(-2)).toEqual(["cleared:b.md", "cleared:c.md"]);
+  });
+
+  it("counts up as clips finish and takes the count down at the end", async () => {
+    const h = harness({ paths: ["a.md", "b.md"] });
+    await h.runner.describe(["a.md", "b.md"], h.writer);
+    expect(h.progress).toEqual(["0/2", "1/2", "2/2", null]);
+  });
+
+  it("closes a halted run with the reason alone, no summary", async () => {
+    const h = harness({
+      paths: ["a.md"],
+      run: async () => ({ ok: false, failure: "not-logged-in", message: "Not logged in" }),
+    });
+    await h.runner.describe(["a.md"], h.writer);
+    expect(h.notices).toEqual([HALTS["not-logged-in"]]);
   });
 });
 

@@ -4,6 +4,15 @@ import { attachTip } from "./core/tip";
 
 /** Space left between a control and the menu it launches. */
 const LAUNCH_GAP = 10;
+/** How long a finished run's line stays before the pill goes. */
+const FINISH_HOLD_MS = 3200;
+/** Its fade, matching the transition in styles.css. */
+const LEAVE_MS = 260;
+/** The progress ring's radius, in the 20 by 20 box it is drawn in. */
+const RING_R = 8;
+const RING_LENGTH = 2 * Math.PI * RING_R;
+/** The least of the ring drawn, so it shows the run has started before anything lands. */
+const RING_MIN = 0.1;
 
 export interface SpaceBarHandlers {
   /** Open the grid list, anchored at the given point. */
@@ -16,6 +25,8 @@ export interface SpaceBarHandlers {
   onFilter: (x: number, y: number) => void;
   /** Leave the open folder and show the grid whole again. */
   onBack: () => void;
+  /** The Describe pill was clicked: open the palette, where Stop and Review are. */
+  onDescribe: () => void;
 }
 
 /**
@@ -40,6 +51,11 @@ export class SpaceBar {
   private back: HTMLElement;
   private grid: GridSpace | null = null;
   private folder: string | null = null;
+  private describe: HTMLElement;
+  private describeRing: SVGCircleElement;
+  private describeIcon: HTMLElement;
+  private describeText: HTMLElement;
+  private describeTimer = 0;
 
   constructor(container: HTMLElement, handlers: SpaceBarHandlers) {
     this.root = container.createDiv({ cls: "pg-spacebar" });
@@ -81,6 +97,32 @@ export class SpaceBar {
     };
 
     const right = this.root.createDiv({ cls: "pg-space-right" });
+
+    // A Describe run, while there is one: a ring filling as clips land and
+    // the count beside it, then the run's closing line with a check.
+    this.describe = right.createEl("button", { cls: "pg-space-describe is-hidden" });
+    attachTip(this.describe, "Describe");
+    const ring = this.describe.createSvg("svg", {
+      cls: "pg-describe-ring",
+      attr: { viewBox: "0 0 20 20", width: "20", height: "20" },
+    });
+    ring.createSvg("circle", { cls: "pg-describe-track", attr: { cx: "10", cy: "10", r: String(RING_R) } });
+    this.describeRing = ring.createSvg("circle", {
+      cls: "pg-describe-fill",
+      attr: {
+        cx: "10",
+        cy: "10",
+        r: String(RING_R),
+        "stroke-dasharray": String(RING_LENGTH),
+        "stroke-dashoffset": String(RING_LENGTH),
+      },
+    });
+    this.describeIcon = this.describe.createSpan({ cls: "pg-describe-done" });
+    this.describeText = this.describe.createSpan({ cls: "pg-describe-count" });
+    this.describe.onclick = (event: MouseEvent) => {
+      event.stopPropagation();
+      handlers.onDescribe();
+    };
 
     this.switcher = right.createEl("button", { cls: "pg-space-switch" });
     attachTip(this.switcher, "Switch grid");
@@ -163,7 +205,38 @@ export class SpaceBar {
     this.filter.toggleClass("is-active", count > 0);
   }
 
+  /** A run's progress, or null once it is over. */
+  setDescribeProgress(state: { done: number; total: number } | null): void {
+    window.clearTimeout(this.describeTimer);
+    if (!state) {
+      this.describe.addClass("is-hidden");
+      return;
+    }
+    const fraction = Math.max(RING_MIN, state.total > 0 ? state.done / state.total : 0);
+    this.describeRing.setAttribute("stroke-dashoffset", String(RING_LENGTH * (1 - fraction)));
+    this.describeText.setText(`Describing ${state.done} of ${state.total}`);
+    this.describe.removeClass("is-hidden", "is-finished", "is-leaving");
+  }
+
+  /** The run's closing line, with a check that draws itself, held a moment and then gone. */
+  finishDescribe(text: string): void {
+    window.clearTimeout(this.describeTimer);
+    this.describeIcon.empty();
+    setIcon(this.describeIcon, "check");
+    this.describeText.setText(text);
+    this.describe.removeClass("is-hidden", "is-leaving");
+    this.describe.addClass("is-finished");
+    this.describeTimer = window.setTimeout(() => {
+      this.describe.addClass("is-leaving");
+      this.describeTimer = window.setTimeout(() => {
+        this.describe.addClass("is-hidden");
+        this.describe.removeClass("is-leaving", "is-finished");
+      }, LEAVE_MS);
+    }, FINISH_HOLD_MS);
+  }
+
   destroy(): void {
+    window.clearTimeout(this.describeTimer);
     this.back.remove();
     this.root.remove();
   }

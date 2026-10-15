@@ -20,6 +20,8 @@ import {
   wallVocabulary,
 } from "./describe";
 import type { PendingStore } from "./describe";
+import { addedLabels } from "./describing";
+import type { ClipStatus, RunSummary } from "./describing";
 import type { FrontmatterWrite } from "./editable";
 import type { HistoryEntry } from "./history";
 import { ReviewSession } from "./review";
@@ -51,8 +53,12 @@ export interface RunnerDeps {
   records(): readonly ClippingRecord[];
   save(store: PendingStore): Promise<void>;
   wait(ms: number): Promise<void>;
-  /** The in-place progress line, or null to take it down. */
-  progress(text: string | null): void;
+  /** How far the run has got, or null to take the count down. */
+  progress(state: { done: number; total: number } | null): void;
+  /** Each clip's step, for the wall to show on its tile. */
+  status(path: string, status: ClipStatus): void;
+  /** The run ended on its own or was stopped. A halted run says why through notify instead. */
+  finished(summary: RunSummary): void;
   notify(text: string): void;
 }
 
@@ -201,14 +207,19 @@ export class DescribeRunner {
     } finally {
       this.deps.engine.cancelAll();
       this.running = false;
-      this.deps.progress(null);
+      // A stop or a halt leaves clips that never landed: their tiles let go.
+      for (const path of paths) if (!this.handled.has(path)) this.deps.status(path, { step: "cleared" });
       if (written.length > 0) {
         writer.record(entry(`Describe ${plural(written.length, "clipping", "clippings")}`, written, writer));
       }
       await this.deps.save(this.pending);
       // Suggestions this run added join the review; ticks on clips still waiting carry over.
       if (this.session) this.session = new ReviewSession(this.pending, this.session);
-      this.deps.notify(this.halted ?? this.summary(written.length));
+      // Down only now, beside the closing line, so nothing reads as finished
+      // while the suggestions are still being saved.
+      this.deps.progress(null);
+      if (this.halted) this.deps.notify(this.halted);
+      else this.deps.finished(this.summary(written.length));
     }
   }
 
@@ -315,28 +326,29 @@ export class DescribeRunner {
     if (all) this.deps.notify("Oriko: suggestions discarded");
   }
 
-  private progress(): string {
-    return `Oriko: describing ${this.done} of ${this.total}…`;
+  private progress(): { done: number; total: number } {
+    return { done: this.done, total: this.total };
   }
 
-  private summary(described: number): string {
-    const parts = [`${described} described`];
-    if (this.failed.length > 0) parts.push(`${this.failed.length} failed`);
-    if (this.suggested.size > 0) {
-      parts.push(`${plural(this.suggested.size, "category", "categories")} to review`);
-    }
-    return `Oriko: ${parts.join(", ")}${this.stopped && !this.halted ? " (stopped)" : ""}`;
+  private summary(described: number): RunSummary {
+    return {
+      described,
+      failed: this.failed.length,
+      suggested: this.suggested.size,
+      stopped: this.stopped,
+    };
   }
 
-  private tick(path: string): void {
+  private tick(path: string, status: ClipStatus = { step: "cleared" }): void {
     this.handled.add(path);
     this.done++;
+    this.deps.status(path, status);
     this.deps.progress(this.progress());
   }
 
   private fail(path: string): void {
     this.failed.push(path);
-    this.tick(path);
+    this.tick(path, { step: "failed" });
   }
 
   private halt(reason: Halt): void {
@@ -402,6 +414,7 @@ export class DescribeRunner {
     for (const path of paths) if (!found.has(path)) this.tick(path);
     if (jobs.length === 0 || this.stopped) return;
 
+    for (const job of jobs) this.deps.status(job.path, { step: "describing" });
     const timeout = jobs.length > 1 ? this.options.batchTimeoutMs : this.options.singleTimeoutMs;
     const outcome = await this.runJobs(jobs, vocabulary, timeout);
     if (this.stopped) return;
@@ -453,7 +466,11 @@ export class DescribeRunner {
       const offered = suggestionsFor(record.categories, described, { selected, cap });
       for (const proposal of offered.proposals) this.suggested.add(proposal.term);
       this.pending = addPending(this.pending, offered);
-      this.tick(path);
+      this.tick(path, {
+        step: "labelled",
+        added: addedLabels(record.categories, after),
+        review: offered.proposals.length,
+      });
     } else {
       this.fail(path);
     }

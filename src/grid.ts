@@ -44,6 +44,8 @@ import type { Rect } from "./core/selection";
 import { cardsBelow } from "./core/push";
 import { BUILDING_PREFIX } from "./core/tile";
 import { previewBlur, stepIcon } from "./core/building";
+import { describeLook } from "./core/describing";
+import type { ClipStatus } from "./core/describing";
 import type { TileModel } from "./core/tile";
 import { steamBandHeight } from "./core/steam";
 import type { SteamLook } from "./core/steam";
@@ -66,6 +68,13 @@ const FRAME_INSET = 4;
 /** How long a landing card shows its check before fading, and how long the fade takes. */
 const LAND_HOLD_MS = 650;
 const LAND_FADE_MS = 420;
+/**
+ * Clips Describe has on the wall at once past which their pills drop the
+ * frosted blur and the shimmering words. A batch is ten clips and six run at
+ * once, and sixty blurred layers repainting under a scroll is what the wall
+ * cannot afford.
+ */
+const DESCRIBE_CROWD = 8;
 /** A store card's band when it slides out on hover; matches styles.css. */
 const HOVER_STEAM_BAND = 56;
 /** How long cards take to make room under an opened card; matches .is-pushed. */
@@ -126,6 +135,9 @@ interface TileElement {
   /** The frame sizeCard last wrote to and what it wrote, so an unchanged card is skipped. */
   sizedFrame: Element | null;
   sized: string;
+  /** Describe's pill over the card, and what it last drew, so an unchanged step is skipped. */
+  describe: HTMLElement | null;
+  describeKey: string;
 }
 
 /**
@@ -160,6 +172,10 @@ export class GridRenderer {
   private spotlightTimer = 0;
   private layout: LayoutResult = { positions: [], totalHeight: 0 };
   private mounted = new Map<string, TileElement>();
+  /** Each clip Describe has a step for, mounted or not, so a tile scrolled in shows it. */
+  private describing = new Map<string, ClipStatus>();
+  /** When a landed pill lets go, by clip. */
+  private describeTimers = new Map<string, number>();
   private pool: TileElement[] = [];
   private frame = 0;
   private relayoutFrame = 0;
@@ -1591,7 +1607,18 @@ export class GridRenderer {
     const recycled = this.pool.pop();
     if (recycled) return recycled;
     const root = this.canvas.createDiv({ cls: "pg-tile" });
-    return { root, media: null, id: "", signature: "", kind: "", look: "", sizedFrame: null, sized: "" };
+    return {
+      root,
+      media: null,
+      id: "",
+      signature: "",
+      kind: "",
+      look: "",
+      sizedFrame: null,
+      sized: "",
+      describe: null,
+      describeKey: "",
+    };
   }
 
   private release(tile: TileElement): void {
@@ -1609,7 +1636,10 @@ export class GridRenderer {
     tile.sized = "";
     tile.root.removeClass("is-steam");
     tile.root.removeClass("is-pushed");
+    tile.root.removeClass("is-describing");
     tile.media = null;
+    tile.describe = null;
+    tile.describeKey = "";
     this.pool.push(tile);
   }
 
@@ -1873,6 +1903,106 @@ export class GridRenderer {
 
     this.paintContent(element, model);
     this.sizeCard(element, position);
+    if (element.describe || this.describing.size > 0) this.paintDescribe(element, model);
+  }
+
+  /**
+   * A step of Describe on one clip: its pill over the card, a light sweeping
+   * the card while Claude has it, and on landing a check and the labels it
+   * gained, which then fade. Held here by clip, so a tile scrolled away and
+   * back picks up where its clip has got to.
+   */
+  setDescribeStatus(id: string, status: ClipStatus): void {
+    const timer = this.describeTimers.get(id);
+    if (timer !== undefined) {
+      window.clearTimeout(timer);
+      this.describeTimers.delete(id);
+    }
+    const model = this.byId.get(id);
+    const look = describeLook(status, model?.kind ?? "image");
+    if (look) this.describing.set(id, status);
+    else this.describing.delete(id);
+    if (look && look.holdMs > 0) {
+      this.describeTimers.set(
+        id,
+        window.setTimeout(() => {
+          this.describeTimers.delete(id);
+          this.describing.delete(id);
+          this.letGoDescribe(id);
+        }, look.holdMs)
+      );
+    }
+    const element = this.mounted.get(id);
+    if (element && model) {
+      if (look) this.paintDescribe(element, model);
+      else this.letGoDescribe(id);
+    }
+    this.viewport.toggleClass("is-describing-many", this.describing.size > DESCRIBE_CROWD);
+  }
+
+  /** Fades a clip's pill away, leaving the card as it was. */
+  private letGoDescribe(id: string): void {
+    this.viewport.toggleClass("is-describing-many", this.describing.size > DESCRIBE_CROWD);
+    const element = this.mounted.get(id);
+    const overlay = element?.describe;
+    if (!element || !overlay) return;
+    element.describe = null;
+    element.describeKey = "";
+    element.root.removeClass("is-describing");
+    overlay.addClass("is-gone");
+    window.setTimeout(() => overlay.remove(), LAND_FADE_MS);
+  }
+
+  private paintDescribe(element: TileElement, model: TileModel): void {
+    const status = model.building ? undefined : this.describing.get(model.id);
+    const look = status ? describeLook(status, model.kind) : null;
+    if (!look) {
+      element.describe?.remove();
+      element.describe = null;
+      element.describeKey = "";
+      element.root.removeClass("is-describing");
+      return;
+    }
+    const key = `${look.icon}|${look.label}|${look.labels.join(",")}`;
+    let overlay = element.describe?.isConnected ? element.describe : null;
+    if (overlay && element.describeKey === key) return;
+
+    if (!overlay) {
+      // Over the art, never the band of a store or post card: the same place
+      // the pills a card shows on hover sit.
+      const host =
+        element.root.querySelector<HTMLElement>(".pg-steam-art") ??
+        element.root.querySelector<HTMLElement>(".pg-frame");
+      if (!host) return;
+      overlay = host.createDiv({ cls: "pg-describe" });
+      const pill = overlay.createDiv({ cls: "pg-building-pill" });
+      pill.createSpan({ cls: "pg-building-icon" });
+      pill.createSpan({ cls: "pg-building-text" });
+      element.describe = overlay;
+    }
+    element.describeKey = key;
+    element.root.addClass("is-describing");
+    overlay.toggleClass("is-busy", look.busy);
+    overlay.toggleClass("is-sweeping", look.sweep);
+    overlay.toggleClass("is-landed", !look.busy);
+    overlay.dataset.icon = look.icon;
+
+    const icon = overlay.querySelector<HTMLElement>(".pg-building-icon");
+    if (icon && icon.dataset.icon !== look.icon) {
+      icon.dataset.icon = look.icon;
+      icon.empty();
+      setIcon(icon, look.icon);
+    }
+    overlay.querySelector<HTMLElement>(".pg-building-text")?.setText(look.label);
+
+    overlay.querySelector(".pg-describe-labels")?.remove();
+    if (look.labels.length > 0) {
+      const labels = overlay.createDiv({ cls: "pg-describe-labels" });
+      look.labels.forEach((term, i) => {
+        const badge = labels.createSpan({ cls: "pg-badge", text: term });
+        badge.style.setProperty("--pg-i", String(i));
+      });
+    }
   }
 
   /**
@@ -2574,6 +2704,8 @@ export class GridRenderer {
     if (this.frame) window.cancelAnimationFrame(this.frame);
     if (this.relayoutFrame) window.cancelAnimationFrame(this.relayoutFrame);
     window.clearTimeout(this.spotlightTimer);
+    for (const timer of this.describeTimers.values()) window.clearTimeout(timer);
+    this.describeTimers.clear();
     this.mounted.clear();
     this.mountedFolders.clear();
     this.measured.clear();
