@@ -1,0 +1,147 @@
+import { requestUrl } from "obsidian";
+import { CLOUD_BASE, cloudBody, cloudOutcome } from "./core/cloud-engine";
+import type { CloudUsage } from "./core/cloud-engine";
+import type { Depth, DescribeJob, EngineFailure, RunOutcome } from "./core/claude-engine";
+import type { DescribeEngine } from "./core/describe-run";
+
+/**
+ * Oriko Cloud's calls: Describe batches, and the account calls settings make
+ * (activate this device, show usage, remove this device). The thin half; what
+ * each answer means is in core/cloud-engine.ts.
+ */
+
+/** Who is asking: the license key from the keychain, and this device's install id and label. */
+export interface CloudIdentity {
+  license(): string | null;
+  install(): string;
+  label(): string;
+}
+
+interface Answer {
+  status: number;
+  body: unknown;
+}
+
+/** The account as settings show it: active with usage, or why not, as the failure a run would halt on. */
+export type CloudStatus = { ok: true; usage: CloudUsage } | { ok: false; failure: EngineFailure; message: string };
+
+const ACCOUNT_TIMEOUT_MS = 20_000;
+
+export class CloudAccount {
+  constructor(private id: CloudIdentity) {}
+
+  /**
+   * One call to the server. requestUrl cannot be cancelled, so a timeout or an
+   * abort settles at once and the late answer is dropped.
+   */
+  async call(method: "GET" | "POST", path: string, body: unknown, timeoutMs: number, abort?: Promise<never>): Promise<Answer> {
+    const key = this.id.license();
+    const headers: Record<string, string> = { "X-Oriko-Install": this.id.install() };
+    if (key) headers.Authorization = `Bearer ${key}`;
+    if (body !== undefined) headers["Content-Type"] = "application/json";
+    let timer = 0;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = window.setTimeout(() => reject(new Error("Oriko Cloud did not answer in time")), timeoutMs);
+    });
+    const request = requestUrl({
+      url: `${CLOUD_BASE}${path}`,
+      method,
+      headers,
+      body: body === undefined ? undefined : JSON.stringify(body),
+      throw: false,
+    }).then((answer) => {
+      let parsed: unknown = null;
+      try {
+        parsed = answer.json as unknown;
+      } catch {
+        // Not JSON: an outage page, which cloudOutcome reads as a failed batch.
+      }
+      return { status: answer.status, body: parsed };
+    });
+    try {
+      return await Promise.race(abort ? [request, timeout, abort] : [request, timeout]);
+    } finally {
+      window.clearTimeout(timer);
+    }
+  }
+
+  /** Activates this device, or confirms it already is, and reads the usage. */
+  async activate(): Promise<CloudStatus> {
+    const key = this.id.license();
+    if (!key) return { ok: false, failure: "license-rejected", message: "No license key is saved." };
+    try {
+      const answer = await this.call(
+        "POST",
+        "/v1/activate",
+        { key, install: this.id.install(), label: this.id.label() },
+        ACCOUNT_TIMEOUT_MS
+      );
+      return status(answer);
+    } catch (error) {
+      return { ok: false, failure: "error", message: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  /** Frees this device's activation, so the license can be used on another. */
+  async deactivate(): Promise<boolean> {
+    const key = this.id.license();
+    if (!key) return false;
+    try {
+      const answer = await this.call("POST", "/v1/deactivate", { key, install: this.id.install() }, ACCOUNT_TIMEOUT_MS);
+      return answer.status === 200;
+    } catch {
+      return false;
+    }
+  }
+}
+
+function status(answer: Answer): CloudStatus {
+  const v = answer.body && typeof answer.body === "object" ? (answer.body as Record<string, unknown>) : {};
+  const usage = v.usage as CloudUsage | undefined;
+  if (answer.status === 200 && usage && typeof usage.used === "number") return { ok: true, usage };
+  const outcome = cloudOutcome(answer.status, answer.body);
+  if (outcome !== "not-activated" && !outcome.ok) return { ok: false, failure: outcome.failure, message: outcome.message };
+  return { ok: false, failure: "error", message: `Oriko Cloud answered ${answer.status}.` };
+}
+
+export class OrikoCloudEngine implements DescribeEngine {
+  private cancels = new Set<(error: Error) => void>();
+
+  constructor(private account: CloudAccount) {}
+
+  async run(jobs: DescribeJob[], vocabulary: string[], timeoutMs: number, depth: Depth): Promise<RunOutcome> {
+    const first = await this.describe(jobs, vocabulary, timeoutMs, depth);
+    if (first !== "not-activated") return first;
+    // A key pasted on this device before any run: activate, then try once more.
+    const activated = await this.account.activate();
+    if (!activated.ok) return { ok: false, failure: activated.failure, message: activated.message };
+    const second = await this.describe(jobs, vocabulary, timeoutMs, depth);
+    return second === "not-activated" ? { ok: false, failure: "error", message: "Oriko Cloud did not take the activation" } : second;
+  }
+
+  private async describe(
+    jobs: DescribeJob[],
+    vocabulary: string[],
+    timeoutMs: number,
+    depth: Depth
+  ): Promise<RunOutcome | "not-activated"> {
+    let cancel: (error: Error) => void = () => undefined;
+    const abort = new Promise<never>((_, reject) => {
+      cancel = reject;
+    });
+    this.cancels.add(cancel);
+    try {
+      const answer = await this.account.call("POST", "/v1/describe", cloudBody(jobs, vocabulary, depth), timeoutMs, abort);
+      return cloudOutcome(answer.status, answer.body);
+    } catch (error) {
+      return { ok: false, failure: "error", message: error instanceof Error ? error.message : String(error) };
+    } finally {
+      this.cancels.delete(cancel);
+    }
+  }
+
+  cancelAll(): void {
+    for (const cancel of this.cancels) cancel(new Error("Stopped"));
+    this.cancels.clear();
+  }
+}

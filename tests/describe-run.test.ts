@@ -184,6 +184,18 @@ describe("DescribeRunner", () => {
     }
   });
 
+  it("halts at once on an Oriko Cloud license, device, allowance or availability problem", async () => {
+    for (const failure of ["license-rejected", "license-inactive", "device-limit", "allowance-used", "cloud-unavailable"] as const) {
+      const h = harness({
+        paths: ["a.md", "b.md"],
+        run: async () => ({ ok: false, failure, message: failure }),
+      });
+      await h.runner.describe(["a.md", "b.md"], h.writer);
+      expect(h.events.filter((e) => e.startsWith("run:"))).toHaveLength(1);
+      expect(h.notices.at(-1)).toBe(HALTS[failure]);
+    }
+  });
+
   it("points a stopped Claude Code run at the API-key engine", () => {
     expect(HALTS["third-party"]).toMatch(/API key/);
     expect(HALTS["not-logged-in"]).toMatch(/API key/);

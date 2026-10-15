@@ -54,6 +54,16 @@ export type EngineFailure =
   | "key-rejected"
   /** The API account has no credit left. */
   | "no-credit"
+  /** Oriko Cloud does not recognize the license key. */
+  | "license-rejected"
+  /** The Oriko Cloud subscription has lapsed, been canceled or refunded. */
+  | "license-inactive"
+  /** The license is already active on as many devices as it allows. */
+  | "device-limit"
+  /** This month's Oriko Cloud allowance, and the bonus, are used up. */
+  | "allowance-used"
+  /** Oriko Cloud cannot take work right now. */
+  | "cloud-unavailable"
   | "error";
 
 export type RunOutcome =

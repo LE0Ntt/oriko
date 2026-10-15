@@ -3,11 +3,12 @@ import type { DescribeEngine } from "./describe-run";
 
 /**
  * Which engine does Describe's work: the Claude Code the user installed and
- * signed into, or their own Anthropic API key. Both are the user's own; the
- * choice only says whose bill a run lands on and what has to be set up.
+ * signed into, their own Anthropic API key, or Oriko Cloud, the paid engine
+ * on Trevware's server. The first two are the user's own and free; the
+ * choice says whose bill a run lands on and what has to be set up.
  */
 
-export type EngineKind = "claude-code" | "api-key";
+export type EngineKind = "claude-code" | "api-key" | "oriko-cloud";
 
 /**
  * Where the user's Anthropic API key is kept: Obsidian's keychain, under a
@@ -27,12 +28,14 @@ export interface EngineState {
   engine: EngineKind;
   claudeFound: boolean;
   hasKey: boolean;
+  hasLicense: boolean;
 }
 
 /** Describe is offered when switched on, on desktop, and once the engine in force can run. */
 export function engineReady(state: EngineState): boolean {
   if (!state.enabled || !state.desktop) return false;
-  return state.engine === "claude-code" ? state.claudeFound : state.hasKey;
+  if (state.engine === "claude-code") return state.claudeFound;
+  return state.engine === "api-key" ? state.hasKey : state.hasLicense;
 }
 
 /** Runs each batch on the engine chosen at that moment, so a change in settings needs no reload. */

@@ -78,7 +78,19 @@ export const RUNNER_DEFAULTS: RunnerOptions = {
   singleTimeoutMs: SINGLE_TIMEOUT_MS,
 };
 
-type Halt = "not-logged-in" | "usage-limit" | "rate-limit" | "not-found" | "third-party" | "key-rejected" | "no-credit";
+type Halt =
+  | "not-logged-in"
+  | "usage-limit"
+  | "rate-limit"
+  | "not-found"
+  | "third-party"
+  | "key-rejected"
+  | "no-credit"
+  | "license-rejected"
+  | "license-inactive"
+  | "device-limit"
+  | "allowance-used"
+  | "cloud-unavailable";
 
 /** Failures that would fail every batch after them, so the run stops at the first. */
 const HALTING: ReadonlySet<string> = new Set<Halt>([
@@ -88,6 +100,11 @@ const HALTING: ReadonlySet<string> = new Set<Halt>([
   "third-party",
   "key-rejected",
   "no-credit",
+  "license-rejected",
+  "license-inactive",
+  "device-limit",
+  "allowance-used",
+  "cloud-unavailable",
 ]);
 
 export const HALTS: Record<Halt, string> = {
@@ -96,6 +113,14 @@ export const HALTS: Record<Halt, string> = {
   "third-party":
     "Oriko: Anthropic is counting Describe as third-party app usage, billed from extra usage, so Describe stopped. You can switch Describe to an API key in Settings → Oriko.",
   "key-rejected": "Oriko: Anthropic rejected the API key. Check it in Settings → Oriko.",
+  "license-rejected": "Oriko: Oriko Cloud doesn't recognize this license key. Check it in Settings → Oriko.",
+  "license-inactive":
+    "Oriko: your Oriko Cloud subscription isn't active. Describing stopped; what was described is kept.",
+  "device-limit":
+    "Oriko: this license is already on 5 devices. Remove one in Settings → Oriko on that device, then describe again.",
+  "allowance-used":
+    "Oriko: you've used this month's Oriko Cloud allowance. Describing stopped; what was described is kept. It resets on the 1st.",
+  "cloud-unavailable": "Oriko: Oriko Cloud isn't available right now. Describing stopped; what was described is kept.",
   "no-credit":
     "Oriko: the Anthropic API key Describe is billing is out of credit. Describing stopped; what was described is kept. Settings → Oriko shows which key is in use.",
   "usage-limit": "Oriko: your Claude usage limit is reached. Describing stopped; what was described is kept.",
