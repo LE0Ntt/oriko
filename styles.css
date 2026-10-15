@@ -857,6 +857,67 @@
   display: none;
 }
 
+/* While a run goes, the wall steps back and the clips with a step showing
+   stay lit: one layer the colour of the wall over the whole canvas, with
+   those clips raised above it. A single layer, because an opacity on every
+   other card gave each one holding a video its own offscreen pass a frame. */
+.pg-describe-scrim {
+  position: absolute;
+  z-index: 7;
+  background: var(--background-primary);
+  opacity: 0.65;
+  pointer-events: none;
+  will-change: opacity;
+  animation: pg-describe-scrim-in 520ms ease-in-out;
+  transition: opacity 520ms ease-in-out;
+}
+
+.pg-describe-scrim.is-gone {
+  opacity: 0;
+}
+
+@keyframes pg-describe-scrim-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* Above the selection and hover lifts too, or a selected clip being
+   described would sit under the layer. */
+.pg-viewport.is-describe-run .pg-tile.is-describing,
+.pg-viewport.is-describe-run .pg-tile.is-building,
+.pg-viewport.is-describe-run .pg-tile.is-lighting,
+.pg-viewport.is-describe-run .pg-tile.is-unlit {
+  z-index: 8;
+}
+
+/* A clip comes up out of the dimmed wall, and goes back down into it, under
+   a veil of the layer's own colour and strength, so neither is a jump. */
+.pg-viewport.is-describe-run .pg-tile.is-lighting::after,
+.pg-viewport.is-describe-run .pg-tile.is-unlit::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  background: var(--background-primary);
+  opacity: 0.65;
+  pointer-events: none;
+}
+
+.pg-viewport.is-describe-run .pg-tile.is-lighting::after {
+  animation: pg-describe-veil-up 420ms ease-in-out forwards;
+}
+
+.pg-viewport.is-describe-run .pg-tile.is-unlit::after {
+  animation: pg-describe-scrim-in 420ms ease-in-out;
+}
+
+@keyframes pg-describe-veil-up {
+  to {
+    opacity: 0;
+  }
+}
+
 /* A crowd of clips at once drops the blur and the shimmering words, which
    each cost a repaint every frame under a scroll. */
 .pg-viewport.is-describing-many .pg-describe .pg-building-pill,
@@ -879,8 +940,15 @@
 @media (prefers-reduced-motion: reduce) {
   .pg-describe.is-sweeping::before,
   .pg-describe.is-landed .pg-building-icon,
-  .pg-describe-labels .pg-badge {
+  .pg-describe-labels .pg-badge,
+  .pg-describe-scrim {
     animation: none;
+    transition: none;
+  }
+
+  .pg-viewport.is-describe-run .pg-tile.is-lighting::after,
+  .pg-viewport.is-describe-run .pg-tile.is-unlit::after {
+    display: none;
   }
 
   .pg-describe .pg-building-text {
@@ -2025,30 +2093,13 @@
 }
 
 .pg-describe-track {
-  stroke: var(--text-faint);
-  opacity: 0.35;
+  stroke: color-mix(in srgb, var(--pg-surface-text) 22%, transparent);
 }
 
 .pg-describe-fill {
   stroke: var(--pg-accent);
   stroke-linecap: round;
   transition: stroke-dashoffset 400ms ease;
-}
-
-.pg-space-describe:not(.is-finished) .pg-describe-count {
-  color: transparent;
-  background: linear-gradient(
-    90deg,
-    var(--text-muted) 0%,
-    var(--text-muted) 38%,
-    var(--text-normal) 50%,
-    var(--text-muted) 62%,
-    var(--text-muted) 100%
-  );
-  background-size: 250% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  animation: pg-building-text 1.8s linear infinite;
 }
 
 .pg-describe-done {
@@ -2084,12 +2135,6 @@
   .pg-describe-ring,
   .pg-space-describe.is-finished .pg-describe-done {
     animation: none;
-  }
-
-  .pg-space-describe:not(.is-finished) .pg-describe-count {
-    animation: none;
-    background: none;
-    color: var(--text-normal);
   }
 
   .pg-space-describe.is-finished .pg-describe-done .svg-icon path,

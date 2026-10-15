@@ -352,7 +352,10 @@ export class OrikoView extends ItemView {
     this.spaceBar.setActive(this.activeGrid());
     this.unwatchDescribe = this.plugin.describer.watch({
       status: (path, status) => this.grid?.setDescribeStatus(path, status),
-      progress: (state) => this.spaceBar?.setDescribeProgress(state),
+      progress: (state) => {
+        this.spaceBar?.setDescribeProgress(state);
+        this.grid?.setDescribeRun(state !== null);
+      },
       finished: (summary) => this.spaceBar?.finishDescribe(summaryText(summary)),
     });
     this.watchBottomInset();

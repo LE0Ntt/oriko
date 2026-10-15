@@ -68,6 +68,8 @@ const FRAME_INSET = 4;
 /** How long a landing card shows its check before fading, and how long the fade takes. */
 const LAND_HOLD_MS = 650;
 const LAND_FADE_MS = 420;
+/** How long the wall takes to step back for a run, and to come forward after. */
+const SCRIM_FADE_MS = 520;
 /**
  * Clips Describe has on the wall at once past which their pills drop the
  * frosted blur and the shimmering words. A batch is ten clips and six run at
@@ -176,6 +178,10 @@ export class GridRenderer {
   private describing = new Map<string, ClipStatus>();
   /** When a landed pill lets go, by clip. */
   private describeTimers = new Map<string, number>();
+  /** The wall-coloured layer a run lays over every card it is not working on. */
+  private describeScrim: HTMLElement | null = null;
+  private describeRunAt = 0;
+  private describeRunTimer = 0;
   private pool: TileElement[] = [];
   private frame = 0;
   private relayoutFrame = 0;
@@ -794,6 +800,7 @@ export class GridRenderer {
     for (const position of this.layout.positions) {
       this.positionById.set(position.id, position);
     }
+    this.sizeDescribeScrim();
 
     if (!this.placed && this.tiles.length > 0) {
       this.placed = true;
@@ -1636,7 +1643,7 @@ export class GridRenderer {
     tile.sized = "";
     tile.root.removeClass("is-steam");
     tile.root.removeClass("is-pushed");
-    tile.root.removeClass("is-describing");
+    tile.root.removeClass("is-describing", "is-lighting", "is-unlit");
     tile.media = null;
     tile.describe = null;
     tile.describeKey = "";
@@ -1903,7 +1910,54 @@ export class GridRenderer {
 
     this.paintContent(element, model);
     this.sizeCard(element, position);
+    // A clip still being made keeps its full strength while Describe dims the wall.
+    element.root.toggleClass("is-building", model.building !== undefined);
     if (element.describe || this.describing.size > 0) this.paintDescribe(element, model);
+  }
+
+  /**
+   * While a run goes, the wall steps back and the clips with a step showing
+   * stay lit, so the eye goes where the work is.
+   *
+   * One layer the colour of the wall, laid over the canvas with those clips
+   * raised above it. Fading every other card instead put an opacity on each,
+   * and a card holding a playing video then needed its own offscreen pass
+   * every frame: scrolling during a run dropped five times the frames.
+   */
+  setDescribeRun(active: boolean): void {
+    if (active === (this.describeScrim !== null)) return;
+    window.clearTimeout(this.describeRunTimer);
+    if (active) {
+      this.viewport.addClass("is-describe-run");
+      this.describeScrim = this.canvas.createDiv({ cls: "pg-describe-scrim" });
+      this.describeRunAt = performance.now();
+      this.sizeDescribeScrim();
+      return;
+    }
+    const scrim = this.describeScrim;
+    this.describeScrim = null;
+    scrim?.addClass("is-gone");
+    // The lit clips stay raised until the layer has gone, or they would sink
+    // under it and dim on the way out.
+    this.describeRunTimer = window.setTimeout(() => {
+      this.viewport.removeClass("is-describe-run");
+      scrim?.remove();
+    }, SCRIM_FADE_MS);
+  }
+
+  /** Covers the wall and the most of the space around it the camera can show. */
+  private sizeDescribeScrim(): void {
+    const scrim = this.describeScrim;
+    if (!scrim) return;
+    const view = this.viewportSize();
+    const pad = Math.max(view.width, view.height) / MIN_ZOOM;
+    const content = this.contentSize();
+    scrim.setCssStyles({
+      left: `${-pad}px`,
+      top: `${-pad}px`,
+      width: `${content.width + pad * 2}px`,
+      height: `${content.height + pad * 2}px`,
+    });
   }
 
   /**
@@ -1920,6 +1974,7 @@ export class GridRenderer {
     }
     const model = this.byId.get(id);
     const look = describeLook(status, model?.kind ?? "image");
+    const lighting = look !== null && !this.describing.has(id);
     if (look) this.describing.set(id, status);
     else this.describing.delete(id);
     if (look && look.holdMs > 0) {
@@ -1936,6 +1991,11 @@ export class GridRenderer {
     if (element && model) {
       if (look) this.paintDescribe(element, model);
       else this.letGoDescribe(id);
+      // Lifted out of the dimmed wall with a fade, once the wall has
+      // finished stepping back: the first clips of a run are lit already.
+      if (lighting && performance.now() - this.describeRunAt > SCRIM_FADE_MS) {
+        this.veil(element, "is-lighting");
+      }
     }
     this.viewport.toggleClass("is-describing-many", this.describing.size > DESCRIBE_CROWD);
   }
@@ -1949,8 +2009,18 @@ export class GridRenderer {
     element.describe = null;
     element.describeKey = "";
     element.root.removeClass("is-describing");
+    // Dims to the wall's strength while still raised, then sinks back under it.
+    this.veil(element, "is-unlit");
     overlay.addClass("is-gone");
     window.setTimeout(() => overlay.remove(), LAND_FADE_MS);
+  }
+
+  /** A fade over one card into or out of the dimmed wall, for as long as a pill takes to go. */
+  private veil(element: TileElement, cls: "is-lighting" | "is-unlit"): void {
+    const root = element.root;
+    root.removeClass("is-lighting", "is-unlit");
+    root.addClass(cls);
+    window.setTimeout(() => root.removeClass(cls), LAND_FADE_MS);
   }
 
   private paintDescribe(element: TileElement, model: TileModel): void {
@@ -1981,6 +2051,7 @@ export class GridRenderer {
       element.describe = overlay;
     }
     element.describeKey = key;
+    element.root.removeClass("is-unlit");
     element.root.addClass("is-describing");
     overlay.toggleClass("is-busy", look.busy);
     overlay.toggleClass("is-sweeping", look.sweep);
@@ -2704,6 +2775,7 @@ export class GridRenderer {
     if (this.frame) window.cancelAnimationFrame(this.frame);
     if (this.relayoutFrame) window.cancelAnimationFrame(this.relayoutFrame);
     window.clearTimeout(this.spotlightTimer);
+    window.clearTimeout(this.describeRunTimer);
     for (const timer of this.describeTimers.values()) window.clearTimeout(timer);
     this.describeTimers.clear();
     this.mounted.clear();
