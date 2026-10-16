@@ -147,9 +147,10 @@ export class ActivationGate {
     if (this.ready) return Promise.resolve({ ok: true });
     if (this.pending) return this.pending;
     const pending: Promise<Readiness> = this.check()
+      // Every batch would fail the same way, so the run halts once.
       .catch((error: unknown): Readiness => ({
         ok: false,
-        failure: "error",
+        failure: "cloud-unavailable",
         message: error instanceof Error ? error.message : String(error),
       }))
       .then((result) => {

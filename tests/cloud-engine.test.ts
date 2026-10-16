@@ -129,14 +129,15 @@ describe("ActivationGate, as lanes come and go", () => {
     expect(checks).toBe(1);
   });
 
-  it("reports a check that throws as a failure, and checks afresh next time", async () => {
+  it("stops the run on a check that throws, and checks afresh next time", async () => {
     let checks = 0;
     const gate = new ActivationGate(async () => {
       checks++;
       if (checks === 1) throw new Error("keychain unavailable");
       return { ok: true };
     });
-    expect(await gate.wait("KEY")).toMatchObject({ ok: false, failure: "error" });
+    // Every batch would fail the same way: halt once, never retry ten clips singly.
+    expect(await gate.wait("KEY")).toMatchObject({ ok: false, failure: "cloud-unavailable" });
     expect(await gate.wait("KEY")).toEqual({ ok: true });
   });
 
