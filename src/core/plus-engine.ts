@@ -48,7 +48,6 @@ export interface PlusUsage {
   month: string;
   used: number;
   limit: number;
-  bonus: number;
 }
 
 export interface PlusJob {
@@ -116,8 +115,7 @@ export function plusOutcome(status: number, body: unknown): RunOutcome | "not-ac
 
 export function usageLine(usage: PlusUsage): string {
   const n = (value: number) => value.toLocaleString("en-US");
-  const month = `${n(usage.used)} of ${n(usage.limit)} this month`;
-  return usage.used >= usage.limit ? `${month}, ${n(usage.bonus)} bonus left` : month;
+  return `${n(usage.used)} of ${n(usage.limit)} this month`;
 }
 
 /** How the device shows in the server's activations, and Polar's: platform and vault. */

@@ -78,7 +78,7 @@ You pick how Describe runs:
 
 - **Claude Code on this computer.** Describe runs the Claude Code you installed and signed into. Anthropic may count it as third-party app usage. Oriko never sees your login.
 - **Anthropic API key.** Describe calls Claude Haiku with a key from the [Claude Console](https://platform.claude.com). Paste the key in settings; it is kept in Obsidian's keychain, never in Oriko's settings file.
-- **Oriko Plus.** A subscription that runs Describe on Oriko's own server, with no Claude Code or API key to set up. It covers 1,000 clippings a month, plus a one-time 2,000 for the clippings you saved before subscribing, on up to five devices, and clippings Claude couldn't label don't count. See [what's included](https://trevware.com/oriko/), then paste the license key from your receipt under **Settings → Oriko → License key**. Questions go to [hello@trevware.com](mailto:hello@trevware.com).
+- **Oriko Plus.** A subscription that runs Describe on Oriko's own server, with no Claude Code or API key to set up. It covers 1,000 clippings a month on up to five devices, and clippings Claude couldn't label don't count. See [what's included](https://trevware.com/oriko/), then paste the license key from your receipt under **Settings → Oriko → License key**. Questions go to [hello@trevware.com](mailto:hello@trevware.com).
 
 Oriko is independent of Anthropic.
 

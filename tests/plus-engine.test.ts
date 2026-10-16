@@ -182,7 +182,7 @@ describe("looksLikeKey", () => {
 
 describe("plusOutcome", () => {
   it("reads the server's results", () => {
-    const run = plusOutcome(200, { results: [item(0), item(1)], usage: { month: "2026-10", used: 2, limit: 1000, bonus: 2000 } });
+    const run = plusOutcome(200, { results: [item(0), item(1)], usage: { month: "2026-10", used: 2, limit: 1000 } });
     expect(run).toMatchObject({ ok: true });
     if (run !== "not-activated" && run.ok) expect(run.results.map((r) => r.id)).toEqual([0, 1]);
   });
@@ -226,9 +226,9 @@ describe("plusOutcome", () => {
 });
 
 describe("usageLine", () => {
-  it("says how much of the month is used, and the bonus once it is being drawn on", () => {
-    expect(usageLine({ month: "2026-10", used: 212, limit: 1000, bonus: 2000 })).toBe("212 of 1,000 this month");
-    expect(usageLine({ month: "2026-10", used: 1000, limit: 1000, bonus: 1800 })).toBe("1,000 of 1,000 this month, 1,800 bonus left");
+  it("says how much of the month is used", () => {
+    expect(usageLine({ month: "2026-10", used: 212, limit: 1000 })).toBe("212 of 1,000 this month");
+    expect(usageLine({ month: "2026-10", used: 1000, limit: 1000 })).toBe("1,000 of 1,000 this month");
   });
 });
 

@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.1.70] - 2026-10-16
 
 ### Added
-- **Oriko Plus runs Describe for you.** If you'd rather not install Claude Code or get an API key, pick Oriko Plus under Settings → Oriko → Describe engine and paste the license key from your receipt. It covers 1,000 clippings a month, plus a one-time 2,000 for the clippings you saved before subscribing, on up to five devices, and the Subscription row keeps count. You can subscribe right from Oriko's settings, or at trevware.com/oriko.
+- **Oriko Plus runs Describe for you.** If you'd rather not install Claude Code or get an API key, pick Oriko Plus under Settings → Oriko → Describe engine and paste the license key from your receipt. It covers 1,000 clippings a month on up to five devices, and the Subscription row keeps count. You can subscribe right from Oriko's settings, or at trevware.com/oriko.
 
 ### Changed
 - **Describe won't take orders from your clippings.** Text in a clipping that reads like instructions to Claude is now treated as part of the clipping to describe, so a page can't steer its own labels.

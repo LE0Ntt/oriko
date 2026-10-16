@@ -60,7 +60,7 @@ export type EngineFailure =
   | "license-inactive"
   /** The license is already active on as many devices as it allows. */
   | "device-limit"
-  /** This month's Oriko Plus allowance, and the bonus, are used up. */
+  /** This month's Oriko Plus allowance is used up. */
   | "allowance-used"
   /** Oriko Plus cannot take work right now. */
   | "plus-unavailable"
