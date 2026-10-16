@@ -3,6 +3,7 @@ import {
   ActivationGate,
   PLUS_IMAGE_MAX,
   PLUS_LIMITS,
+  PLUS_PAGE,
   plusBody,
   plusWait,
   plusOutcome,
@@ -98,6 +99,12 @@ describe("ActivationGate", () => {
     gate.forget();
     await gate.wait("OTHER");
     expect(checks).toBe(4);
+  });
+});
+
+describe("PLUS_PAGE", () => {
+  it("points Learn more at the Oriko Plus section of Oriko's page", () => {
+    expect(PLUS_PAGE).toBe("https://trevware.com/oriko/#plus");
   });
 });
 

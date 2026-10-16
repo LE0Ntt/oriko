@@ -3,7 +3,7 @@ import type { SettingDefinitionItem } from "obsidian";
 import { slotCandidates, surveyProperties } from "./core/facet-catalog";
 import { facetLabel } from "./core/filter";
 import type { PlusStatus } from "./plus-engine";
-import { PLUS_CHECKOUT, PLUS_LAUNCHED, LICENSE_SECRET, looksLikeKey, usageLine } from "./core/plus-engine";
+import { PLUS_CHECKOUT, PLUS_LAUNCHED, PLUS_PAGE, LICENSE_SECRET, looksLikeKey, usageLine } from "./core/plus-engine";
 import { API_KEY_SECRET } from "./core/engines";
 import type { EngineKind } from "./core/engines";
 import { isCardMode } from "./core/settings";
@@ -512,7 +512,12 @@ export class OrikoSettingTab extends PluginSettingTab {
   private async paintPlusStatus(setting: Setting): Promise<void> {
     setting.controlEl.empty();
     if (!this.plugin.plusLicense()) {
-      setting.setDesc("$3 a month or $24 a year. Describe runs on Oriko's server, with nothing else to set up.");
+      setting.setDesc(
+        createFragment((desc) => {
+          desc.appendText("$3 a month or $24 a year. Describe runs on Oriko's server, with nothing else to set up. ");
+          desc.createEl("a", { text: "Learn more", href: PLUS_PAGE });
+        })
+      );
       if (PLUS_CHECKOUT) {
         setting.addButton((button) =>
           button.setButtonText("Subscribe").setCta().onClick(() => window.open(PLUS_CHECKOUT))
