@@ -13,8 +13,8 @@ export const PLUS_BASE = "https://oriko-plus.trevware.com";
 export const PLUS_LAUNCHED = false;
 /** Where Subscribe goes; empty until the Polar checkout exists. */
 export const PLUS_CHECKOUT = "";
-/** What Oriko Plus includes, its refund policy and FAQ: the Learn more link beside Subscribe. */
-export const PLUS_PAGE = "https://trevware.com/oriko/#plus";
+/** Oriko's page, from the top: the Learn more link beside Subscribe. */
+export const PLUS_PAGE = "https://trevware.com/oriko/";
 export const PLUS_PROTOCOL = 1;
 /** Obsidian keychain id for the license key. */
 export const LICENSE_SECRET = "oriko-plus-license";

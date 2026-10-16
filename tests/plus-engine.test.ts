@@ -103,8 +103,8 @@ describe("ActivationGate", () => {
 });
 
 describe("PLUS_PAGE", () => {
-  it("points Learn more at the Oriko Plus section of Oriko's page", () => {
-    expect(PLUS_PAGE).toBe("https://trevware.com/oriko/#plus");
+  it("opens Oriko's page at the top", () => {
+    expect(PLUS_PAGE).toBe("https://trevware.com/oriko/");
   });
 });
 
