@@ -9,10 +9,10 @@ import type { Depth, DescribeJob, EngineFailure, RunOutcome } from "./claude-eng
  */
 
 export const PLUS_BASE = "https://oriko-plus.trevware.com";
-/** Off until launch: the engine works when chosen, but settings do not offer it. */
-export const PLUS_LAUNCHED = false;
-/** Where Subscribe goes; empty until the Polar checkout exists. */
-export const PLUS_CHECKOUT = "";
+/** Launched in 0.1.70: settings offer Oriko Plus and show Subscribe to anyone without a key. */
+export const PLUS_LAUNCHED = true;
+/** Where Subscribe goes: the Polar checkout, with both plans. */
+export const PLUS_CHECKOUT = "https://buy.polar.sh/polar_cl_pzcr2OMDKqtA0UBKHdiRqnI6h68WBHNIrLOst49JIJi";
 /** Oriko's page, from the top: the Learn more link beside Subscribe. */
 export const PLUS_PAGE = "https://trevware.com/oriko/";
 export const PLUS_PROTOCOL = 1;

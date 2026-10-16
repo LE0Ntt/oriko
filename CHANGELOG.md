@@ -5,9 +5,13 @@ All notable changes to Oriko will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.70] - 2026-10-16
+
+### Added
+- **Oriko Plus runs Describe for you.** If you'd rather not install Claude Code or get an API key, pick Oriko Plus under Settings → Oriko → Describe engine and paste the license key from your receipt. It covers 1,000 clippings a month, plus a one-time 2,000 for the clippings you saved before subscribing, on up to five devices, and the Subscription row keeps count. Clippings Claude couldn't label don't count. Each clipping's picture and a little of its text go through Oriko's server to Anthropic, and nothing is kept once the labels are back. Subscribe from that same row, or see what's included at trevware.com/oriko.
 
 ### Changed
+- **Describe won't take orders from your clippings.** Text in a clipping that reads like instructions to Claude is now treated as part of the clipping to describe, so a page can't steer its own labels.
 - **A Describe run that stops on a problem says why straight away.** If Describe has to stop partway (you've signed out of Claude Code, say, or your API key is out of credit), the message now appears the moment it happens, and any clips already being described still get their labels.
 
 ## [0.1.69] - 2026-10-15
