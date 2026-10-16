@@ -1,15 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
   ActivationGate,
-  CLOUD_IMAGE_MAX,
-  CLOUD_LIMITS,
-  cloudBody,
-  cloudWait,
-  cloudOutcome,
+  PLUS_IMAGE_MAX,
+  PLUS_LIMITS,
+  plusBody,
+  plusWait,
+  plusOutcome,
   installLabel,
   looksLikeKey,
   usageLine,
-} from "../src/core/cloud-engine";
+} from "../src/core/plus-engine";
 import type { DescribeJob } from "../src/core/claude-engine";
 
 const job = (over: Partial<DescribeJob> = {}): DescribeJob => ({
@@ -25,9 +25,9 @@ const job = (over: Partial<DescribeJob> = {}): DescribeJob => ({
 
 const item = (id: number) => ({ id, categories: ["design"], proposals: [], fallback: "design", caption: "A poster.", media_text: "" });
 
-describe("cloudBody", () => {
+describe("plusBody", () => {
   it("sends structured jobs without the note's path, never prompt text", () => {
-    const body = cloudBody([job(), job({ id: 1, image: null })], ["design"], "specific");
+    const body = plusBody([job(), job({ id: 1, image: null })], ["design"], "specific");
     expect(body).toEqual({
       protocol: 1,
       depth: "specific",
@@ -40,31 +40,31 @@ describe("cloudBody", () => {
   });
 });
 
-describe("cloudBody limits", () => {
+describe("plusBody limits", () => {
   it("sends a picture past the server's cap as no picture, so one clip can't sink its batch", () => {
-    const body = cloudBody([job({ image: "/9j/" + "A".repeat(CLOUD_IMAGE_MAX) })], [], "standard");
+    const body = plusBody([job({ image: "/9j/" + "A".repeat(PLUS_IMAGE_MAX) })], [], "standard");
     expect(body.jobs[0].image).toBeNull();
-    expect(CLOUD_IMAGE_MAX).toBe(1_000_000);
+    expect(PLUS_IMAGE_MAX).toBe(1_000_000);
   });
 });
 
-describe("cloudBody text limits", () => {
+describe("plusBody text limits", () => {
   it("cuts long text and the category list to what the server takes, so no clip sinks its batch", () => {
-    const body = cloudBody(
+    const body = plusBody(
       [job({ title: "t".repeat(800), description: "d".repeat(800), domain: "x".repeat(600) })],
       [...Array.from({ length: 600 }, (_, i) => `term-${i}`), "y".repeat(120)],
       "standard"
     );
-    expect(body.jobs[0].title.length).toBe(CLOUD_LIMITS.field);
-    expect(body.jobs[0].description.length).toBe(CLOUD_LIMITS.field);
-    expect(body.jobs[0].domain.length).toBe(CLOUD_LIMITS.field);
-    expect(body.vocabulary.length).toBe(CLOUD_LIMITS.terms);
-    expect(body.vocabulary.every((term) => term.length <= CLOUD_LIMITS.term)).toBe(true);
-    expect(CLOUD_LIMITS).toEqual({ field: 500, terms: 500, term: 80 });
+    expect(body.jobs[0].title.length).toBe(PLUS_LIMITS.field);
+    expect(body.jobs[0].description.length).toBe(PLUS_LIMITS.field);
+    expect(body.jobs[0].domain.length).toBe(PLUS_LIMITS.field);
+    expect(body.vocabulary.length).toBe(PLUS_LIMITS.terms);
+    expect(body.vocabulary.every((term) => term.length <= PLUS_LIMITS.term)).toBe(true);
+    expect(PLUS_LIMITS).toEqual({ field: 500, terms: 500, term: 80 });
   });
 
   it("drops overlong categories before cutting the list, keeping the most used", () => {
-    const body = cloudBody([job()], ["design", "z".repeat(81), "food"], "standard");
+    const body = plusBody([job()], ["design", "z".repeat(81), "food"], "standard");
     expect(body.vocabulary).toEqual(["design", "food"]);
   });
 });
@@ -101,10 +101,10 @@ describe("ActivationGate", () => {
   });
 });
 
-describe("cloudWait", () => {
+describe("plusWait", () => {
   it("waits long enough for the server's own limit and a license check on a lone clip", () => {
-    expect(cloudWait(60_000)).toBe(90_000);
-    expect(cloudWait(120_000)).toBe(120_000);
+    expect(plusWait(60_000)).toBe(90_000);
+    expect(plusWait(120_000)).toBe(120_000);
   });
 });
 
@@ -137,7 +137,7 @@ describe("ActivationGate, as lanes come and go", () => {
       return { ok: true };
     });
     // Every batch would fail the same way: halt once, never retry ten clips singly.
-    expect(await gate.wait("KEY")).toMatchObject({ ok: false, failure: "cloud-unavailable" });
+    expect(await gate.wait("KEY")).toMatchObject({ ok: false, failure: "plus-unavailable" });
     expect(await gate.wait("KEY")).toEqual({ ok: true });
   });
 
@@ -173,15 +173,15 @@ describe("looksLikeKey", () => {
   });
 });
 
-describe("cloudOutcome", () => {
+describe("plusOutcome", () => {
   it("reads the server's results", () => {
-    const run = cloudOutcome(200, { results: [item(0), item(1)], usage: { month: "2026-10", used: 2, limit: 1000, bonus: 2000 } });
+    const run = plusOutcome(200, { results: [item(0), item(1)], usage: { month: "2026-10", used: 2, limit: 1000, bonus: 2000 } });
     expect(run).toMatchObject({ ok: true });
     if (run !== "not-activated" && run.ok) expect(run.results.map((r) => r.id)).toEqual([0, 1]);
   });
 
   it("asks for activation when the device is not activated yet", () => {
-    expect(cloudOutcome(409, { error: "not-activated", message: "" })).toBe("not-activated");
+    expect(plusOutcome(409, { error: "not-activated", message: "" })).toBe("not-activated");
   });
 
   it("halts on a key, subscription, device or allowance problem, and when the service is unavailable", () => {
@@ -190,31 +190,31 @@ describe("cloudOutcome", () => {
       [403, "license-inactive", "license-inactive"],
       [403, "device-limit", "device-limit"],
       [402, "allowance-used", "allowance-used"],
-      [503, "unavailable", "cloud-unavailable"],
+      [503, "unavailable", "plus-unavailable"],
     ];
     for (const [status, error, failure] of cases) {
-      expect(cloudOutcome(status, { error, message: "m" })).toMatchObject({ ok: false, failure });
+      expect(plusOutcome(status, { error, message: "m" })).toMatchObject({ ok: false, failure });
     }
   });
 
   it("waits out a rate limit or an overloaded service", () => {
-    expect(cloudOutcome(429, { error: "rate-limited", message: "" })).toMatchObject({ failure: "rate-limit" });
-    expect(cloudOutcome(503, { error: "overloaded", message: "" })).toMatchObject({ failure: "rate-limit" });
+    expect(plusOutcome(429, { error: "rate-limited", message: "" })).toMatchObject({ failure: "rate-limit" });
+    expect(plusOutcome(503, { error: "overloaded", message: "" })).toMatchObject({ failure: "rate-limit" });
   });
 
   it("stops the run when the server can't read what Oriko sent, since every batch would fail the same way", () => {
-    expect(cloudOutcome(400, { error: "bad-request", message: "" })).toMatchObject({ failure: "cloud-refused" });
+    expect(plusOutcome(400, { error: "bad-request", message: "" })).toMatchObject({ failure: "plus-refused" });
   });
 
   it("retries clip by clip a batch Claude ran out of time on, since the server doesn't count it", () => {
-    expect(cloudOutcome(504, { error: "timeout", message: "" })).toMatchObject({ failure: "error" });
+    expect(plusOutcome(504, { error: "timeout", message: "" })).toMatchObject({ failure: "error" });
   });
 
   it("fails only the batch on anything else, including an answer that is not the server's", () => {
-    expect(cloudOutcome(500, { error: "server-error", message: "" })).toMatchObject({ failure: "error" });
-    expect(cloudOutcome(502, { error: "upstream", message: "" })).toMatchObject({ failure: "error" });
-    expect(cloudOutcome(500, "<html>")).toMatchObject({ failure: "error" });
-    expect(cloudOutcome(200, { nothing: true })).toMatchObject({ failure: "error" });
+    expect(plusOutcome(500, { error: "server-error", message: "" })).toMatchObject({ failure: "error" });
+    expect(plusOutcome(502, { error: "upstream", message: "" })).toMatchObject({ failure: "error" });
+    expect(plusOutcome(500, "<html>")).toMatchObject({ failure: "error" });
+    expect(plusOutcome(200, { nothing: true })).toMatchObject({ failure: "error" });
   });
 });
 

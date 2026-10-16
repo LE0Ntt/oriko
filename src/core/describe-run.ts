@@ -90,8 +90,8 @@ type Halt =
   | "license-inactive"
   | "device-limit"
   | "allowance-used"
-  | "cloud-unavailable"
-  | "cloud-refused";
+  | "plus-unavailable"
+  | "plus-refused";
 
 /** Failures that would fail every batch after them, so the run stops at the first. */
 const HALTING: ReadonlySet<string> = new Set<Halt>([
@@ -105,8 +105,8 @@ const HALTING: ReadonlySet<string> = new Set<Halt>([
   "license-inactive",
   "device-limit",
   "allowance-used",
-  "cloud-unavailable",
-  "cloud-refused",
+  "plus-unavailable",
+  "plus-refused",
 ]);
 
 export const HALTS: Record<Halt, string> = {
@@ -115,16 +115,16 @@ export const HALTS: Record<Halt, string> = {
   "third-party":
     "Oriko: Anthropic is counting Describe as third-party app usage, billed from extra usage, so Describe stopped. You can switch Describe to an API key in Settings → Oriko.",
   "key-rejected": "Oriko: Anthropic rejected the API key. Check it in Settings → Oriko.",
-  "license-rejected": "Oriko: Oriko Cloud doesn't recognize this license key. Check it in Settings → Oriko.",
+  "license-rejected": "Oriko: Oriko Plus doesn't recognize this license key. Check it in Settings → Oriko.",
   "license-inactive":
-    "Oriko: your Oriko Cloud subscription isn't active. Describing stopped; what was described is kept.",
+    "Oriko: your Oriko Plus subscription isn't active. Describing stopped; what was described is kept.",
   "device-limit":
     "Oriko: this license is already on 5 devices. Remove one in Settings → Oriko on that device, then describe again.",
   "allowance-used":
-    "Oriko: you've used this month's Oriko Cloud allowance. Describing stopped; what was described is kept. It resets on the 1st.",
-  "cloud-unavailable": "Oriko: Oriko Cloud isn't available right now. Describing stopped; what was described is kept.",
-  "cloud-refused":
-    "Oriko: Oriko Cloud couldn't read what this version of Oriko sent. Describing stopped; update Oriko, then describe again.",
+    "Oriko: you've used this month's Oriko Plus allowance. Describing stopped; what was described is kept. It resets on the 1st.",
+  "plus-unavailable": "Oriko: Oriko Plus isn't available right now. Describing stopped; what was described is kept.",
+  "plus-refused":
+    "Oriko: Oriko Plus couldn't read what this version of Oriko sent. Describing stopped; update Oriko, then describe again.",
   "no-credit":
     "Oriko: the Anthropic API key Describe is billing is out of credit. Describing stopped; what was described is kept. Settings → Oriko shows which key is in use.",
   "usage-limit": "Oriko: your Claude usage limit is reached. Describing stopped; what was described is kept.",
@@ -402,7 +402,7 @@ export class DescribeRunner {
 
   /**
    * Stops the run on a problem. Nothing new starts, but batches already on
-   * their way are left to land: their clips were sent and, on Oriko Cloud,
+   * their way are left to land: their clips were sent and, on Oriko Plus,
    * paid for, so throwing their answers away would waste them.
    */
   private halt(reason: Halt): void {

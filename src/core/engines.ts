@@ -3,12 +3,12 @@ import type { DescribeEngine } from "./describe-run";
 
 /**
  * Which engine does Describe's work: the Claude Code the user installed and
- * signed into, their own Anthropic API key, or Oriko Cloud, the paid engine
+ * signed into, their own Anthropic API key, or Oriko Plus, the paid engine
  * on Trevware's server. The first two are the user's own and free; the
  * choice says whose bill a run lands on and what has to be set up.
  */
 
-export type EngineKind = "claude-code" | "api-key" | "oriko-cloud";
+export type EngineKind = "claude-code" | "api-key" | "oriko-plus";
 
 /**
  * Where the user's Anthropic API key is kept: Obsidian's keychain, under a

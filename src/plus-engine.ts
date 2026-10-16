@@ -1,17 +1,17 @@
 import { requestUrl } from "obsidian";
-import { ActivationGate, CLOUD_BASE, cloudBody, cloudOutcome, cloudWait } from "./core/cloud-engine";
-import type { CloudUsage } from "./core/cloud-engine";
+import { ActivationGate, PLUS_BASE, plusBody, plusOutcome, plusWait } from "./core/plus-engine";
+import type { PlusUsage } from "./core/plus-engine";
 import type { Depth, DescribeJob, EngineFailure, RunOutcome } from "./core/claude-engine";
 import type { DescribeEngine } from "./core/describe-run";
 
 /**
- * Oriko Cloud's calls: Describe batches, and the account calls settings make
+ * Oriko Plus's calls: Describe batches, and the account calls settings make
  * (activate this device, show usage, remove this device). The thin half; what
- * each answer means is in core/cloud-engine.ts.
+ * each answer means is in core/plus-engine.ts.
  */
 
 /** Who is asking: the license key from the keychain, and this device's install id and label. */
-export interface CloudIdentity {
+export interface PlusIdentity {
   license(): string | null;
   install(): string;
   label(): string;
@@ -23,15 +23,15 @@ interface Answer {
 }
 
 /** The account as settings show it: active with usage, or why not, as the failure a run would halt on. */
-export type CloudStatus = { ok: true; usage: CloudUsage } | { ok: false; failure: EngineFailure; message: string };
+export type PlusStatus = { ok: true; usage: PlusUsage } | { ok: false; failure: EngineFailure; message: string };
 
 const ACCOUNT_TIMEOUT_MS = 20_000;
 
 /** No answer in time. The request may still be running on the server. */
 class NoAnswer extends Error {}
 
-export class CloudAccount {
-  constructor(private id: CloudIdentity) {}
+export class PlusAccount {
+  constructor(private id: PlusIdentity) {}
 
   /**
    * One call to the server. requestUrl cannot be cancelled, so a timeout or an
@@ -44,10 +44,10 @@ export class CloudAccount {
     if (body !== undefined) headers["Content-Type"] = "application/json";
     let timer = 0;
     const timeout = new Promise<never>((_, reject) => {
-      timer = window.setTimeout(() => reject(new NoAnswer("Oriko Cloud did not answer in time")), timeoutMs);
+      timer = window.setTimeout(() => reject(new NoAnswer("Oriko Plus did not answer in time")), timeoutMs);
     });
     const request = requestUrl({
-      url: `${CLOUD_BASE}${path}`,
+      url: `${PLUS_BASE}${path}`,
       method,
       headers,
       body: body === undefined ? undefined : JSON.stringify(body),
@@ -57,7 +57,7 @@ export class CloudAccount {
       try {
         parsed = answer.json as unknown;
       } catch {
-        // Not JSON: an outage page, which cloudOutcome reads as a failed batch.
+        // Not JSON: an outage page, which plusOutcome reads as a failed batch.
       }
       return { status: answer.status, body: parsed };
     });
@@ -73,11 +73,11 @@ export class CloudAccount {
    * the server says it isn't yet. Reading usage first keeps a settings page
    * that redraws from spending activation attempts, which are limited.
    */
-  async status(): Promise<CloudStatus> {
+  async status(): Promise<PlusStatus> {
     if (!this.id.license()) return { ok: false, failure: "license-rejected", message: "No license key is saved." };
     try {
       const answer = await this.call("GET", "/v1/usage", undefined, ACCOUNT_TIMEOUT_MS);
-      if (cloudOutcome(answer.status, answer.body) === "not-activated") return this.activate();
+      if (plusOutcome(answer.status, answer.body) === "not-activated") return this.activate();
       return status(answer);
     } catch (error) {
       return { ok: false, failure: "error", message: error instanceof Error ? error.message : String(error) };
@@ -85,7 +85,7 @@ export class CloudAccount {
   }
 
   /** Activates this device, or confirms it already is, and reads the usage. */
-  async activate(): Promise<CloudStatus> {
+  async activate(): Promise<PlusStatus> {
     const key = this.id.license();
     if (!key) return { ok: false, failure: "license-rejected", message: "No license key is saved." };
     try {
@@ -109,7 +109,7 @@ export class CloudAccount {
       const answer = await this.call("POST", "/v1/deactivate", { key, install: this.id.install() }, ACCOUNT_TIMEOUT_MS);
       // A key the server no longer knows (rotated, or its records cleared)
       // has no device here to free: removing it locally is all that's left.
-      const unknown = cloudOutcome(answer.status, answer.body);
+      const unknown = plusOutcome(answer.status, answer.body);
       return answer.status === 200 || (unknown !== "not-activated" && !unknown.ok && unknown.failure === "license-rejected");
     } catch {
       return false;
@@ -117,22 +117,22 @@ export class CloudAccount {
   }
 }
 
-function status(answer: Answer): CloudStatus {
+function status(answer: Answer): PlusStatus {
   const v = answer.body && typeof answer.body === "object" ? (answer.body as Record<string, unknown>) : {};
-  const usage = v.usage as CloudUsage | undefined;
+  const usage = v.usage as PlusUsage | undefined;
   if (answer.status === 200 && usage && typeof usage.used === "number") return { ok: true, usage };
-  const outcome = cloudOutcome(answer.status, answer.body);
+  const outcome = plusOutcome(answer.status, answer.body);
   if (outcome !== "not-activated" && !outcome.ok) return { ok: false, failure: outcome.failure, message: outcome.message };
-  return { ok: false, failure: "error", message: `Oriko Cloud answered ${answer.status}.` };
+  return { ok: false, failure: "error", message: `Oriko Plus answered ${answer.status}.` };
 }
 
-export class OrikoCloudEngine implements DescribeEngine {
+export class OrikoPlusEngine implements DescribeEngine {
   private cancels = new Set<(error: Error) => void>();
   /** One activation check for all of a run's lanes, before any batch goes out. */
   private gate: ActivationGate;
 
   constructor(
-    private account: CloudAccount,
+    private account: PlusAccount,
     private license: () => string | null
   ) {
     this.gate = new ActivationGate(() => this.account.status());
@@ -150,7 +150,7 @@ export class OrikoCloudEngine implements DescribeEngine {
     const second = await this.describe(jobs, vocabulary, timeoutMs, depth);
     // Still settling on the server: waited out and tried again like a rate
     // limit, never retried clip by clip, which would only fail ten times over.
-    return second === "not-activated" ? { ok: false, failure: "rate-limit", message: "Oriko Cloud is still activating this device" } : second;
+    return second === "not-activated" ? { ok: false, failure: "rate-limit", message: "Oriko Plus is still activating this device" } : second;
   }
 
   private async describe(
@@ -165,8 +165,8 @@ export class OrikoCloudEngine implements DescribeEngine {
     });
     this.cancels.add(cancel);
     try {
-      const answer = await this.account.call("POST", "/v1/describe", cloudBody(jobs, vocabulary, depth), cloudWait(timeoutMs), abort);
-      return cloudOutcome(answer.status, answer.body);
+      const answer = await this.account.call("POST", "/v1/describe", plusBody(jobs, vocabulary, depth), plusWait(timeoutMs), abort);
+      return plusOutcome(answer.status, answer.body);
     } catch (error) {
       // Gone past the time limit, the batch may still be charged and finished
       // on the server: fail it, never retry its clips one by one.

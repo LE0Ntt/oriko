@@ -40,8 +40,8 @@ import { OrikoSettingTab } from "./settings-tab";
 import { OrikoView, VIEW_TYPE_GRID } from "./view";
 import { ApiKeyEngine } from "./api-engine";
 import { ClaudeCodeEngine, claudeAvailable } from "./claude-engine";
-import { CloudAccount, OrikoCloudEngine } from "./cloud-engine";
-import { INSTALL_KEY, LICENSE_SECRET, installLabel } from "./core/cloud-engine";
+import { PlusAccount, OrikoPlusEngine } from "./plus-engine";
+import { INSTALL_KEY, LICENSE_SECRET, installLabel } from "./core/plus-engine";
 import { SwitchingEngine, effectiveEngine, engineReady } from "./core/engines";
 import { API_KEY_SECRET } from "./core/engines";
 import type { EngineKind } from "./core/engines";
@@ -55,8 +55,8 @@ export default class OrikoPlugin extends Plugin {
   posts!: PostService;
   capture!: CaptureService;
   describer!: DescribeService;
-  /** Oriko Cloud's account calls, for the engine and for settings. */
-  cloud!: CloudAccount;
+  /** Oriko Plus's account calls, for the engine and for settings. */
+  plus!: PlusAccount;
   /** The last shared file this device wrote, to recognise its own echo. */
   private wroteShared = "";
   private archiveTimer = 0;
@@ -125,9 +125,9 @@ export default class OrikoPlugin extends Plugin {
       () => this.index.records()
     );
     await this.posts.load();
-    this.cloud = new CloudAccount({
-      license: () => this.cloudLicense(),
-      install: () => this.cloudInstall(),
+    this.plus = new PlusAccount({
+      license: () => this.plusLicense(),
+      install: () => this.plusInstall(),
       label: () => installLabel(platformName(), this.app.vault.getName()),
     });
     this.describer = new DescribeService(
@@ -136,7 +136,7 @@ export default class OrikoPlugin extends Plugin {
         {
           "claude-code": new ClaudeCodeEngine(() => this.settings.describePreferLogin),
           "api-key": new ApiKeyEngine(() => this.describeKey()),
-          "oriko-cloud": new OrikoCloudEngine(this.cloud, () => this.cloudLicense()),
+          "oriko-plus": new OrikoPlusEngine(this.plus, () => this.plusLicense()),
         },
         () => this.describeEngine()
       ),
@@ -556,7 +556,7 @@ export default class OrikoPlugin extends Plugin {
       engine,
       claudeFound: engine === "claude-code" && claudeAvailable(),
       hasKey: engine === "api-key" && this.describeKey() !== null,
-      hasLicense: engine === "oriko-cloud" && this.cloudLicense() !== null,
+      hasLicense: engine === "oriko-plus" && this.plusLicense() !== null,
     });
   }
 
@@ -565,13 +565,13 @@ export default class OrikoPlugin extends Plugin {
     return effectiveEngine(this.settings.describeEngine, Platform.isDesktopApp && claudeAvailable());
   }
 
-  /** The Oriko Cloud license key, from Obsidian's keychain on this device. */
-  cloudLicense(): string | null {
+  /** The Oriko Plus license key, from Obsidian's keychain on this device. */
+  plusLicense(): string | null {
     return this.app.secretStorage.getSecret(LICENSE_SECRET)?.trim() || null;
   }
 
-  /** This device's Oriko Cloud install id, made the first time it is asked for. */
-  cloudInstall(): string {
+  /** This device's Oriko Plus install id, made the first time it is asked for. */
+  plusInstall(): string {
     const saved: unknown = this.app.loadLocalStorage(INSTALL_KEY);
     if (typeof saved === "string" && saved) return saved;
     const id = crypto.randomUUID();
@@ -636,7 +636,7 @@ export default class OrikoPlugin extends Plugin {
   }
 }
 
-/** How Oriko Cloud names this device, beside the vault's name. */
+/** How Oriko Plus names this device, beside the vault's name. */
 function platformName(): string {
   if (Platform.isMacOS) return "macOS";
   if (Platform.isWin) return "Windows";

@@ -32,9 +32,9 @@ describe("engineReady", () => {
     expect(engineReady({ ...base, engine: "claude-code", claudeFound: false })).toBe(false);
   });
 
-  it("offers Oriko Cloud once a license key is saved", () => {
-    expect(engineReady({ ...base, engine: "oriko-cloud" })).toBe(false);
-    expect(engineReady({ ...base, engine: "oriko-cloud", hasLicense: true })).toBe(true);
+  it("offers Oriko Plus once a license key is saved", () => {
+    expect(engineReady({ ...base, engine: "oriko-plus" })).toBe(false);
+    expect(engineReady({ ...base, engine: "oriko-plus", hasLicense: true })).toBe(true);
   });
 
   it("stays off when switched off or away from the desktop", () => {
@@ -46,26 +46,26 @@ describe("engineReady", () => {
 describe("SwitchingEngine", () => {
   it("runs each batch on the engine chosen at that moment", async () => {
     const log: string[] = [];
-    let choice: "claude-code" | "api-key" | "oriko-cloud" = "claude-code";
+    let choice: "claude-code" | "api-key" | "oriko-plus" = "claude-code";
     const engine = new SwitchingEngine(
-      { "claude-code": fake("cc", log), "api-key": fake("api", log), "oriko-cloud": fake("cloud", log) },
+      { "claude-code": fake("cc", log), "api-key": fake("api", log), "oriko-plus": fake("plus", log) },
       () => choice
     );
     await engine.run([], [], 1000, "standard");
     choice = "api-key";
     await engine.run([], [], 1000, "standard");
-    choice = "oriko-cloud";
+    choice = "oriko-plus";
     await engine.run([], [], 1000, "standard");
-    expect(log).toEqual(["run:cc", "run:api", "run:cloud"]);
+    expect(log).toEqual(["run:cc", "run:api", "run:plus"]);
   });
 
   it("cancels every engine", () => {
     const log: string[] = [];
     const engine = new SwitchingEngine(
-      { "claude-code": fake("cc", log), "api-key": fake("api", log), "oriko-cloud": fake("cloud", log) },
+      { "claude-code": fake("cc", log), "api-key": fake("api", log), "oriko-plus": fake("plus", log) },
       () => "api-key"
     );
     engine.cancelAll();
-    expect(log).toEqual(["cancel:cc", "cancel:api", "cancel:cloud"]);
+    expect(log).toEqual(["cancel:cc", "cancel:api", "cancel:plus"]);
   });
 });

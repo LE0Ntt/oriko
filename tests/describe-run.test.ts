@@ -186,8 +186,8 @@ describe("DescribeRunner", () => {
     }
   });
 
-  it("halts at once on an Oriko Cloud license, device, allowance or availability problem", async () => {
-    for (const failure of ["license-rejected", "license-inactive", "device-limit", "allowance-used", "cloud-unavailable", "cloud-refused"] as const) {
+  it("halts at once on an Oriko Plus license, device, allowance or availability problem", async () => {
+    for (const failure of ["license-rejected", "license-inactive", "device-limit", "allowance-used", "plus-unavailable", "plus-refused"] as const) {
       const h = harness({
         paths: ["a.md", "b.md"],
         run: async () => ({ ok: false, failure, message: failure }),
@@ -277,7 +277,7 @@ describe("DescribeRunner", () => {
       paths: ["a.md", "b.md"],
       concurrency: 2,
       run: async (jobs) => {
-        if (jobs[0].path === "a.md") return { ok: false, failure: "cloud-unavailable", message: "down" };
+        if (jobs[0].path === "a.md") return { ok: false, failure: "plus-unavailable", message: "down" };
         await new Promise<void>((resolve) => {
           release = resolve;
         });
@@ -286,10 +286,10 @@ describe("DescribeRunner", () => {
     });
     const done = h.runner.describe(["a.md", "b.md"], h.writer);
     await new Promise((resolve) => setTimeout(resolve, 10));
-    expect(h.notices).toEqual([HALTS["cloud-unavailable"]]);
+    expect(h.notices).toEqual([HALTS["plus-unavailable"]]);
     release();
     await done;
-    expect(h.notices).toEqual([HALTS["cloud-unavailable"]]);
+    expect(h.notices).toEqual([HALTS["plus-unavailable"]]);
   });
 
   it("drops a batch on its way when the user stops the run", async () => {
@@ -309,14 +309,14 @@ describe("DescribeRunner", () => {
     expect(h.written).toEqual([]);
   });
 
-  it("doesn't blame Claude for a limit Oriko Cloud may have set", () => {
+  it("doesn't blame Claude for a limit Oriko Plus may have set", () => {
     expect(HALTS["rate-limit"]).not.toMatch(/Claude/);
   });
 
   it("fails a lost batch without retrying its clips one by one, which would charge them twice", async () => {
     const h = harness({
       paths: ["a.md", "b.md"],
-      run: async () => ({ ok: false, failure: "batch-lost", message: "Oriko Cloud did not answer in time" }),
+      run: async () => ({ ok: false, failure: "batch-lost", message: "Oriko Plus did not answer in time" }),
     });
     await h.runner.describe(["a.md", "b.md"], h.writer);
     // The harness batches one clip at a time: one call each, and no second.

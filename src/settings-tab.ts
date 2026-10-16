@@ -2,8 +2,8 @@ import { AbstractInputSuggest, App, Platform, PluginSettingTab, Setting } from "
 import type { SettingDefinitionItem } from "obsidian";
 import { slotCandidates, surveyProperties } from "./core/facet-catalog";
 import { facetLabel } from "./core/filter";
-import type { CloudStatus } from "./cloud-engine";
-import { CLOUD_CHECKOUT, CLOUD_LAUNCHED, LICENSE_SECRET, looksLikeKey, usageLine } from "./core/cloud-engine";
+import type { PlusStatus } from "./plus-engine";
+import { PLUS_CHECKOUT, PLUS_LAUNCHED, LICENSE_SECRET, looksLikeKey, usageLine } from "./core/plus-engine";
 import { API_KEY_SECRET } from "./core/engines";
 import type { EngineKind } from "./core/engines";
 import { isCardMode } from "./core/settings";
@@ -268,7 +268,7 @@ export class OrikoSettingTab extends PluginSettingTab {
           },
           {
             name: "Describe engine",
-            desc: this.offersCloud() ? "Your own Claude, or Oriko Cloud." : "Runs on your own Claude.",
+            desc: this.offersPlus() ? "Your own Claude, or Oriko Plus." : "Runs on your own Claude.",
             visible: () => this.describing(),
             control: {
               type: "dropdown",
@@ -306,8 +306,8 @@ export class OrikoSettingTab extends PluginSettingTab {
           },
           {
             name: "License key",
-            desc: "From your Oriko Cloud receipt, kept in Obsidian's keychain.",
-            visible: () => this.describing("oriko-cloud"),
+            desc: "From your Oriko Plus receipt, kept in Obsidian's keychain.",
+            visible: () => this.describing("oriko-plus"),
             render: (setting) => {
               setting.addText((text) => {
                 text.inputEl.type = "password";
@@ -316,17 +316,17 @@ export class OrikoSettingTab extends PluginSettingTab {
                   .setValue(this.app.secretStorage.getSecret(LICENSE_SECRET) ?? "")
                   .onChange((value) => {
                     this.app.secretStorage.setSecret(LICENSE_SECRET, value.trim());
-                    this.scheduleCloudCheck();
+                    this.schedulePlusCheck();
                   });
               });
             },
           },
           {
             name: "Subscription",
-            visible: () => this.describing("oriko-cloud"),
+            visible: () => this.describing("oriko-plus"),
             render: (setting) => {
-              this.cloudSetting = setting;
-              void this.paintCloudStatus(setting);
+              this.plusSetting = setting;
+              void this.paintPlusStatus(setting);
             },
           },
         ],
@@ -458,13 +458,13 @@ export class OrikoSettingTab extends PluginSettingTab {
   }
 
   /** The Subscription row, repainted when a key is pasted. */
-  private cloudSetting: Setting | null = null;
-  private cloudTimer = 0;
+  private plusSetting: Setting | null = null;
+  private plusTimer = 0;
   /** The last answer about the subscription, by key, so a redraw of this page doesn't ask the server again. */
-  private cloudKnown: { key: string; status: CloudStatus } | null = null;
+  private plusKnown: { key: string; status: PlusStatus } | null = null;
 
   /**
-   * The engines settings offer. Oriko Cloud joins once it launches, or when
+   * The engines settings offer. Oriko Plus joins once it launches, or when
    * it is already the engine in force, so a tester's choice still shows; the
    * engine row's description follows the same rule.
    */
@@ -473,35 +473,35 @@ export class OrikoSettingTab extends PluginSettingTab {
       "claude-code": "Claude Code on this computer",
       "api-key": "Anthropic API key",
     };
-    if (this.offersCloud()) options["oriko-cloud"] = "Oriko Cloud";
+    if (this.offersPlus()) options["oriko-plus"] = "Oriko Plus";
     return options;
   }
 
-  private offersCloud(): boolean {
-    return CLOUD_LAUNCHED || this.plugin.settings.describeEngine === "oriko-cloud";
+  private offersPlus(): boolean {
+    return PLUS_LAUNCHED || this.plugin.settings.describeEngine === "oriko-plus";
   }
 
   /**
    * Checks a pasted key once typing stops and the key is whole, so neither a
    * keystroke nor a half-typed key costs a call to the server.
    */
-  private scheduleCloudCheck(): void {
-    window.clearTimeout(this.cloudTimer);
-    const key = this.plugin.cloudLicense() ?? "";
+  private schedulePlusCheck(): void {
+    window.clearTimeout(this.plusTimer);
+    const key = this.plugin.plusLicense() ?? "";
     if (key && !looksLikeKey(key)) {
-      this.cloudSetting?.setDesc("That doesn't look like a whole license key yet.");
+      this.plusSetting?.setDesc("That doesn't look like a whole license key yet.");
       return;
     }
-    this.cloudTimer = window.setTimeout(() => {
-      this.cloudKnown = null;
-      if (this.cloudSetting) void this.paintCloudStatus(this.cloudSetting);
+    this.plusTimer = window.setTimeout(() => {
+      this.plusKnown = null;
+      if (this.plusSetting) void this.paintPlusStatus(this.plusSetting);
     }, 800);
   }
 
   hide(): void {
-    window.clearTimeout(this.cloudTimer);
+    window.clearTimeout(this.plusTimer);
     // Asked afresh next time the page opens.
-    this.cloudKnown = null;
+    this.plusKnown = null;
     super.hide();
   }
 
@@ -509,30 +509,30 @@ export class OrikoSettingTab extends PluginSettingTab {
    * The subscription as the server sees it. Asking activates this device too,
    * which is what pasting a key on it means.
    */
-  private async paintCloudStatus(setting: Setting): Promise<void> {
+  private async paintPlusStatus(setting: Setting): Promise<void> {
     setting.controlEl.empty();
-    if (!this.plugin.cloudLicense()) {
+    if (!this.plugin.plusLicense()) {
       setting.setDesc("$3 a month or $24 a year. Describe runs on Oriko's server, with nothing else to set up.");
-      if (CLOUD_CHECKOUT) {
+      if (PLUS_CHECKOUT) {
         setting.addButton((button) =>
-          button.setButtonText("Subscribe").setCta().onClick(() => window.open(CLOUD_CHECKOUT))
+          button.setButtonText("Subscribe").setCta().onClick(() => window.open(PLUS_CHECKOUT))
         );
       }
       return;
     }
-    const key = this.plugin.cloudLicense() ?? "";
-    let status = this.cloudKnown?.key === key ? this.cloudKnown.status : null;
+    const key = this.plugin.plusLicense() ?? "";
+    let status = this.plusKnown?.key === key ? this.plusKnown.status : null;
     if (!status) {
       setting.setDesc("Checking…");
-      status = await this.plugin.cloud.status();
-      this.cloudKnown = { key, status };
+      status = await this.plugin.plus.status();
+      this.plusKnown = { key, status };
     }
-    if (setting !== this.cloudSetting) return;
+    if (setting !== this.plusSetting) return;
     setting.setDesc(status.ok ? `Active. ${usageLine(status.usage)}.` : status.message);
     setting.addButton((button) =>
       button.setButtonText("Remove this device").onClick(async () => {
         button.setDisabled(true);
-        const removed = await this.plugin.cloud.deactivate();
+        const removed = await this.plugin.plus.deactivate();
         if (!removed) {
           setting.setDesc("Couldn't reach the server. Try again.");
           button.setDisabled(false);
@@ -541,7 +541,7 @@ export class OrikoSettingTab extends PluginSettingTab {
         // The key leaves this device too, or the next look at this page would
         // activate it again.
         this.app.secretStorage.setSecret(LICENSE_SECRET, "");
-        this.cloudKnown = null;
+        this.plusKnown = null;
         this.update();
       })
     );
@@ -599,7 +599,7 @@ export class OrikoSettingTab extends PluginSettingTab {
         return this.plugin.saveSettings().then(() => this.update());
       }
       case "describeEngine": {
-        settings.describeEngine = value === "api-key" || value === "oriko-cloud" ? value : "claude-code";
+        settings.describeEngine = value === "api-key" || value === "oriko-plus" ? value : "claude-code";
         return this.plugin.saveSettings().then(() => this.update());
       }
       case "gridLookScope": {
