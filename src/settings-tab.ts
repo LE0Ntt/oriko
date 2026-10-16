@@ -2,7 +2,10 @@ import { AbstractInputSuggest, App, Platform, PluginSettingTab, Setting } from "
 import type { SettingDefinitionItem } from "obsidian";
 import { slotCandidates, surveyProperties } from "./core/facet-catalog";
 import { facetLabel } from "./core/filter";
+import type { PlusStatus } from "./plus-engine";
+import { PLUS_CHECKOUT, PLUS_LAUNCHED, PLUS_PAGE, LICENSE_SECRET, looksLikeKey, usageLine } from "./core/plus-engine";
 import { API_KEY_SECRET } from "./core/engines";
+import type { EngineKind } from "./core/engines";
 import { isCardMode } from "./core/settings";
 import { hostEnv } from "./convert";
 import { OrikoView, VIEW_TYPE_GRID } from "./view";
@@ -265,15 +268,12 @@ export class OrikoSettingTab extends PluginSettingTab {
           },
           {
             name: "Describe engine",
-            desc: "Runs on your own Claude, billed by Anthropic.",
+            desc: this.offersPlus() ? "Your own Claude, or Oriko Plus." : "Runs on your own Claude.",
             visible: () => this.describing(),
             control: {
               type: "dropdown",
               key: "describeEngine",
-              options: {
-                "claude-code": "Claude Code on this computer",
-                "api-key": "Anthropic API key",
-              },
+              options: this.engineOptions(),
             },
           },
           {
@@ -302,6 +302,31 @@ export class OrikoSettingTab extends PluginSettingTab {
                   .setValue(this.app.secretStorage.getSecret(API_KEY_SECRET) ?? "")
                   .onChange((value) => this.app.secretStorage.setSecret(API_KEY_SECRET, value.trim()));
               });
+            },
+          },
+          {
+            name: "License key",
+            desc: "From your Oriko Plus receipt, kept in Obsidian's keychain.",
+            visible: () => this.describing("oriko-plus"),
+            render: (setting) => {
+              setting.addText((text) => {
+                text.inputEl.type = "password";
+                text
+                  .setPlaceholder("Paste your key")
+                  .setValue(this.app.secretStorage.getSecret(LICENSE_SECRET) ?? "")
+                  .onChange((value) => {
+                    this.app.secretStorage.setSecret(LICENSE_SECRET, value.trim());
+                    this.schedulePlusCheck();
+                  });
+              });
+            },
+          },
+          {
+            name: "Subscription",
+            visible: () => this.describing("oriko-plus"),
+            render: (setting) => {
+              this.plusSetting = setting;
+              void this.paintPlusStatus(setting);
             },
           },
         ],
@@ -432,8 +457,103 @@ export class OrikoSettingTab extends PluginSettingTab {
     ];
   }
 
+  /** The Subscription row, repainted when a key is pasted. */
+  private plusSetting: Setting | null = null;
+  private plusTimer = 0;
+  /** The last answer about the subscription, by key, so a redraw of this page doesn't ask the server again. */
+  private plusKnown: { key: string; status: PlusStatus } | null = null;
+
+  /**
+   * The engines settings offer. Oriko Plus joins once it launches, or when
+   * it is already the engine in force, so a tester's choice still shows; the
+   * engine row's description follows the same rule.
+   */
+  private engineOptions(): Record<string, string> {
+    const options: Record<string, string> = {
+      "claude-code": "Claude Code on this computer",
+      "api-key": "Anthropic API key",
+    };
+    if (this.offersPlus()) options["oriko-plus"] = "Oriko Plus";
+    return options;
+  }
+
+  private offersPlus(): boolean {
+    return PLUS_LAUNCHED || this.plugin.settings.describeEngine === "oriko-plus";
+  }
+
+  /**
+   * Checks a pasted key once typing stops and the key is whole, so neither a
+   * keystroke nor a half-typed key costs a call to the server.
+   */
+  private schedulePlusCheck(): void {
+    window.clearTimeout(this.plusTimer);
+    const key = this.plugin.plusLicense() ?? "";
+    if (key && !looksLikeKey(key)) {
+      this.plusSetting?.setDesc("That doesn't look like a whole license key yet.");
+      return;
+    }
+    this.plusTimer = window.setTimeout(() => {
+      this.plusKnown = null;
+      if (this.plusSetting) void this.paintPlusStatus(this.plusSetting);
+    }, 800);
+  }
+
+  hide(): void {
+    window.clearTimeout(this.plusTimer);
+    // Asked afresh next time the page opens.
+    this.plusKnown = null;
+    super.hide();
+  }
+
+  /**
+   * The subscription as the server sees it. Asking activates this device too,
+   * which is what pasting a key on it means.
+   */
+  private async paintPlusStatus(setting: Setting): Promise<void> {
+    setting.controlEl.empty();
+    if (!this.plugin.plusLicense()) {
+      setting.setDesc(
+        createFragment((desc) => {
+          desc.appendText("$3 a month or $24 a year. Describe runs on Oriko's server, with nothing else to set up. ");
+          desc.createEl("a", { text: "Learn more", href: PLUS_PAGE });
+        })
+      );
+      if (PLUS_CHECKOUT) {
+        setting.addButton((button) =>
+          button.setButtonText("Subscribe").setCta().onClick(() => window.open(PLUS_CHECKOUT))
+        );
+      }
+      return;
+    }
+    const key = this.plugin.plusLicense() ?? "";
+    let status = this.plusKnown?.key === key ? this.plusKnown.status : null;
+    if (!status) {
+      setting.setDesc("Checking…");
+      status = await this.plugin.plus.status();
+      this.plusKnown = { key, status };
+    }
+    if (setting !== this.plusSetting) return;
+    setting.setDesc(status.ok ? `Active. ${usageLine(status.usage)}.` : status.message);
+    setting.addButton((button) =>
+      button.setButtonText("Remove this device").onClick(async () => {
+        button.setDisabled(true);
+        const removed = await this.plugin.plus.deactivate();
+        if (!removed) {
+          setting.setDesc("Couldn't reach the server. Try again.");
+          button.setDisabled(false);
+          return;
+        }
+        // The key leaves this device too, or the next look at this page would
+        // activate it again.
+        this.app.secretStorage.setSecret(LICENSE_SECRET, "");
+        this.plusKnown = null;
+        this.update();
+      })
+    );
+  }
+
   /** Whether Describe's own rows show: switched on, on desktop, and on the given engine if one is named. */
-  private describing(engine?: "claude-code" | "api-key"): boolean {
+  private describing(engine?: EngineKind): boolean {
     if (!Platform.isDesktopApp || !this.plugin.settings.describeEnabled) return false;
     return engine === undefined || this.plugin.describeEngine() === engine;
   }
@@ -484,7 +604,7 @@ export class OrikoSettingTab extends PluginSettingTab {
         return this.plugin.saveSettings().then(() => this.update());
       }
       case "describeEngine": {
-        settings.describeEngine = value === "api-key" ? "api-key" : "claude-code";
+        settings.describeEngine = value === "api-key" || value === "oriko-plus" ? value : "claude-code";
         return this.plugin.saveSettings().then(() => this.update());
       }
       case "gridLookScope": {

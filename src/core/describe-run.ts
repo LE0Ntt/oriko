@@ -78,7 +78,20 @@ export const RUNNER_DEFAULTS: RunnerOptions = {
   singleTimeoutMs: SINGLE_TIMEOUT_MS,
 };
 
-type Halt = "not-logged-in" | "usage-limit" | "rate-limit" | "not-found" | "third-party" | "key-rejected" | "no-credit";
+type Halt =
+  | "not-logged-in"
+  | "usage-limit"
+  | "rate-limit"
+  | "not-found"
+  | "third-party"
+  | "key-rejected"
+  | "no-credit"
+  | "license-rejected"
+  | "license-inactive"
+  | "device-limit"
+  | "allowance-used"
+  | "plus-unavailable"
+  | "plus-refused";
 
 /** Failures that would fail every batch after them, so the run stops at the first. */
 const HALTING: ReadonlySet<string> = new Set<Halt>([
@@ -88,6 +101,12 @@ const HALTING: ReadonlySet<string> = new Set<Halt>([
   "third-party",
   "key-rejected",
   "no-credit",
+  "license-rejected",
+  "license-inactive",
+  "device-limit",
+  "allowance-used",
+  "plus-unavailable",
+  "plus-refused",
 ]);
 
 export const HALTS: Record<Halt, string> = {
@@ -96,11 +115,21 @@ export const HALTS: Record<Halt, string> = {
   "third-party":
     "Oriko: Anthropic is counting Describe as third-party app usage, billed from extra usage, so Describe stopped. You can switch Describe to an API key in Settings → Oriko.",
   "key-rejected": "Oriko: Anthropic rejected the API key. Check it in Settings → Oriko.",
+  "license-rejected": "Oriko: Oriko Plus doesn't recognize this license key. Check it in Settings → Oriko.",
+  "license-inactive":
+    "Oriko: your Oriko Plus subscription isn't active. Describing stopped; what was described is kept.",
+  "device-limit":
+    "Oriko: this license is already on 5 devices. Remove one in Settings → Oriko on that device, then describe again.",
+  "allowance-used":
+    "Oriko: you've used this month's Oriko Plus allowance. Describing stopped; what was described is kept. It resets on the 1st.",
+  "plus-unavailable": "Oriko: Oriko Plus isn't available right now. Describing stopped; what was described is kept.",
+  "plus-refused":
+    "Oriko: Oriko Plus couldn't read what this version of Oriko sent. Describing stopped; update Oriko, then describe again.",
   "no-credit":
     "Oriko: the Anthropic API key Describe is billing is out of credit. Describing stopped; what was described is kept. Settings → Oriko shows which key is in use.",
   "usage-limit": "Oriko: your Claude usage limit is reached. Describing stopped; what was described is kept.",
   "rate-limit":
-    "Oriko: Claude is limiting requests right now. Describing stopped; what was described is kept. Try again in a few minutes.",
+    "Oriko: requests are being limited right now. Describing stopped; what was described is kept. Try again in a few minutes.",
   "not-found": "Oriko: Claude Code was not found. Check Settings → Oriko → Claude Code path.",
 };
 
@@ -138,7 +167,10 @@ function entry(label: string, written: Written[], writer: DescribeWriter): Histo
 
 export class DescribeRunner {
   private running = false;
+  /** No new batches start: the user stopped the run, or it halted on a problem. */
   private stopped = false;
+  /** The user stopped the run: work on its way is dropped too. */
+  private cancelled = false;
   private halted: string | null = null;
   private done = 0;
   private total = 0;
@@ -198,6 +230,7 @@ export class DescribeRunner {
     this.request = { depth: request.depth ?? "standard", selected: request.selected ?? false };
     this.running = true;
     this.stopped = false;
+    this.cancelled = false;
     this.halted = null;
     this.done = 0;
     this.total = paths.length;
@@ -233,8 +266,8 @@ export class DescribeRunner {
       // Down only now, beside the closing line, so nothing reads as finished
       // while the suggestions are still being saved.
       this.deps.progress(null);
-      if (this.halted) this.deps.notify(this.halted);
-      else this.deps.finished(this.summary(written.length));
+      // A halted run said why when it halted.
+      if (!this.halted) this.deps.finished(this.summary(written.length));
     }
   }
 
@@ -245,6 +278,7 @@ export class DescribeRunner {
   stop(): void {
     if (!this.running) return;
     this.stopped = true;
+    this.cancelled = true;
     this.deps.engine.cancelAll();
   }
 
@@ -366,10 +400,18 @@ export class DescribeRunner {
     this.tick(path, { step: "failed" });
   }
 
+  /**
+   * Stops the run on a problem. Nothing new starts, but batches already on
+   * their way are left to land: their clips were sent and, on Oriko Plus,
+   * paid for, so throwing their answers away would waste them.
+   */
   private halt(reason: Halt): void {
-    this.halted ??= HALTS[reason];
+    if (this.halted === null) {
+      this.halted = HALTS[reason];
+      // Said now, while batches already out are still landing.
+      this.deps.notify(this.halted);
+    }
     this.stopped = true;
-    this.deps.engine.cancelAll();
   }
 
   private async jobsFor(paths: string[]): Promise<DescribeJob[]> {
@@ -428,7 +470,21 @@ export class DescribeRunner {
     for (const job of jobs) this.deps.status(job.path, { step: "describing" });
     const timeout = jobs.length > 1 ? this.options.batchTimeoutMs : this.options.singleTimeoutMs;
     const outcome = await this.runJobs(jobs, vocabulary, timeout);
-    if (this.stopped) return;
+    if (this.cancelled) return;
+    // Halted while this batch was out: keep what came back, start nothing
+    // more, and fail the rest so Retry failed picks them up.
+    if (this.stopped) {
+      const { matched, missing } = outcome.ok ? matchResults(jobs, outcome.results) : { matched: [], missing: jobs };
+      for (const [job, raw] of matched) await this.accept(job.path, raw, vocabulary, writer, written);
+      for (const job of missing) this.fail(job.path);
+      return;
+    }
+    if (!outcome.ok && outcome.failure === "batch-lost") {
+      // Retrying singly would pay for the same clips again; Retry failed
+      // picks them up later, at no cost if the lost batch was refunded.
+      for (const job of jobs) this.fail(job.path);
+      return;
+    }
     if (!outcome.ok) {
       await this.runSingly(jobs, vocabulary, writer, written);
       return;
@@ -445,10 +501,16 @@ export class DescribeRunner {
     writer: DescribeWriter,
     written: Written[]
   ): Promise<void> {
-    for (const job of jobs) {
-      if (this.stopped) return;
+    for (const [index, job] of jobs.entries()) {
+      if (this.stopped) {
+        // Halted with these still to retry: failed, so Retry failed finds
+        // them. A run the user stopped leaves them as they were.
+        if (!this.cancelled) for (const rest of jobs.slice(index)) this.fail(rest.path);
+        return;
+      }
       const outcome = await this.runJobs([{ ...job, id: 0 }], vocabulary, this.options.singleTimeoutMs);
-      if (this.stopped) return;
+      // Halted while it was out, the answer is still kept: it was sent and paid for.
+      if (this.cancelled) return;
       const raw = outcome.ok ? outcome.results.find((r) => r.caption.trim()) : undefined;
       if (raw) await this.accept(job.path, raw, vocabulary, writer, written);
       else this.fail(job.path);

@@ -59,6 +59,8 @@ function harness(
     prepare?: (path: string, id: number) => Promise<DescribeJob | null>;
     write?: (path: string, values: FrontmatterWrite) => Promise<boolean>;
     cancelAll?: () => void;
+    concurrency?: number;
+    batchSize?: number;
   } = {}
 ): Harness {
   const events: string[] = [];
@@ -110,7 +112,7 @@ function harness(
       finished: (summary) => notices.push(`Oriko: ${summaryText(summary)}`),
       notify: (text) => notices.push(text),
     },
-    { batchSize: 1, concurrency: 1, rateLimitWaitMs: 0, batchTimeoutMs: 1000, singleTimeoutMs: 1000 }
+    { batchSize: options.batchSize ?? 1, concurrency: options.concurrency ?? 1, rateLimitWaitMs: 0, batchTimeoutMs: 1000, singleTimeoutMs: 1000 }
   );
   const writer: DescribeWriter = {
     write:
@@ -182,6 +184,144 @@ describe("DescribeRunner", () => {
       expect(h.events.filter((e) => e.startsWith("run:"))).toHaveLength(1);
       expect(h.notices.at(-1)).toBe(HALTS[failure]);
     }
+  });
+
+  it("halts at once on an Oriko Plus license, device, allowance or availability problem", async () => {
+    for (const failure of ["license-rejected", "license-inactive", "device-limit", "allowance-used", "plus-unavailable", "plus-refused"] as const) {
+      const h = harness({
+        paths: ["a.md", "b.md"],
+        run: async () => ({ ok: false, failure, message: failure }),
+      });
+      await h.runner.describe(["a.md", "b.md"], h.writer);
+      expect(h.events.filter((e) => e.startsWith("run:"))).toHaveLength(1);
+      expect(h.notices.at(-1)).toBe(HALTS[failure]);
+    }
+  });
+
+  it("keeps a batch already on its way when another lane halts the run, since it was paid for", async () => {
+    const h = harness({
+      paths: ["a.md", "b.md"],
+      concurrency: 2,
+      run: async (jobs) => {
+        if (jobs[0].path === "a.md") {
+          await new Promise((resolve) => setTimeout(resolve, 5));
+          return { ok: false, failure: "allowance-used", message: "used" };
+        }
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        return { ok: true, results: jobs.map((job) => answer(job.id)) };
+      },
+    });
+    await h.runner.describe(["a.md", "b.md"], h.writer);
+    expect(h.written.map(([path]) => path)).toEqual(["b.md"]);
+    expect(h.notices.at(-1)).toBe(HALTS["allowance-used"]);
+  });
+
+  it("keeps a lone clip's answer that lands after another lane halts the run", async () => {
+    let bCalls = 0;
+    const h = harness({
+      paths: ["a.md", "b.md"],
+      concurrency: 2,
+      run: async (jobs) => {
+        if (jobs[0].path === "a.md") {
+          await new Promise((resolve) => setTimeout(resolve, 10));
+          return { ok: false, failure: "allowance-used", message: "used" };
+        }
+        bCalls++;
+        if (bCalls === 1) return { ok: false, failure: "error", message: "bad batch" };
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        return { ok: true, results: [answer(0)] };
+      },
+    });
+    await h.runner.describe(["a.md", "b.md"], h.writer);
+    expect(h.written.map(([path]) => path)).toEqual(["b.md"]);
+  });
+
+  it("fails the clips still waiting for a one-by-one retry when the run halts, so Retry failed finds them", async () => {
+    const h = harness({
+      paths: ["x.md", "y.md", "z.md"],
+      concurrency: 2,
+      batchSize: 2,
+      run: async (jobs) => {
+        if (jobs.some((job) => job.path === "z.md")) {
+          await new Promise((resolve) => setTimeout(resolve, 15));
+          return { ok: false, failure: "allowance-used", message: "used" };
+        }
+        if (jobs.length === 2) return { ok: false, failure: "error", message: "bad batch" };
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        return { ok: true, results: [answer(0)] };
+      },
+    });
+    await h.runner.describe(["x.md", "y.md", "z.md"], h.writer);
+    expect(h.written.map(([path]) => path)).toEqual(["x.md"]);
+    expect(h.statuses).toContain("failed:y.md");
+  });
+
+  it("fails what a batch landing after a halt didn't label, so Retry failed finds it", async () => {
+    const h = harness({
+      paths: ["a.md", "b.md", "c.md"],
+      concurrency: 3,
+      run: async (jobs) => {
+        if (jobs[0].path === "a.md") return { ok: false, failure: "allowance-used", message: "used" };
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        if (jobs[0].path === "b.md") return { ok: true, results: [] };
+        return { ok: false, failure: "error", message: "bad batch" };
+      },
+    });
+    await h.runner.describe(["a.md", "b.md", "c.md"], h.writer);
+    expect(h.statuses).toEqual(expect.arrayContaining(["failed:b.md", "failed:c.md"]));
+  });
+
+  it("says why a run halted the moment it does, not once the last batch lands", async () => {
+    let release: () => void = () => undefined;
+    const h = harness({
+      paths: ["a.md", "b.md"],
+      concurrency: 2,
+      run: async (jobs) => {
+        if (jobs[0].path === "a.md") return { ok: false, failure: "plus-unavailable", message: "down" };
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        return { ok: true, results: jobs.map((job) => answer(job.id)) };
+      },
+    });
+    const done = h.runner.describe(["a.md", "b.md"], h.writer);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(h.notices).toEqual([HALTS["plus-unavailable"]]);
+    release();
+    await done;
+    expect(h.notices).toEqual([HALTS["plus-unavailable"]]);
+  });
+
+  it("drops a batch on its way when the user stops the run", async () => {
+    let release: () => void = () => undefined;
+    const h = harness({
+      paths: ["a.md"],
+      run: (jobs) =>
+        new Promise((resolve) => {
+          release = () => resolve({ ok: true, results: jobs.map((job) => answer(job.id)) });
+        }),
+    });
+    const done = h.runner.describe(["a.md"], h.writer);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    h.runner.stop();
+    release();
+    await done;
+    expect(h.written).toEqual([]);
+  });
+
+  it("doesn't blame Claude for a limit Oriko Plus may have set", () => {
+    expect(HALTS["rate-limit"]).not.toMatch(/Claude/);
+  });
+
+  it("fails a lost batch without retrying its clips one by one, which would charge them twice", async () => {
+    const h = harness({
+      paths: ["a.md", "b.md"],
+      run: async () => ({ ok: false, failure: "batch-lost", message: "Oriko Plus did not answer in time" }),
+    });
+    await h.runner.describe(["a.md", "b.md"], h.writer);
+    // The harness batches one clip at a time: one call each, and no second.
+    expect(h.events.filter((e) => e.startsWith("run:"))).toEqual(["run:a.md", "run:b.md"]);
+    expect(h.runner.context([]).failed).toBe(2);
   });
 
   it("points a stopped Claude Code run at the API-key engine", () => {

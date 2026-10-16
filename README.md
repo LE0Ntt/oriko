@@ -74,10 +74,11 @@ Any frontmatter property can become a filter. Enable properties under **Settings
 
 A pasted screenshot or a reel with no caption is hard to find again. **Describe** looks at the picture, or a few frames of a video, along with the note's text, and writes categories, a one-line `caption` and any text in the picture (`media_text`) into the frontmatter, so the palette finds the clip by what is in it. Turn it on under **Settings → Oriko → Describe clippings** on desktop, then run **Describe uncategorized** from ⌘K, or select tiles and choose **Describe**. Categories it suggests that are not on your wall yet wait in **Review suggestions** until you approve them.
 
-Describe runs on your own Claude, and you pick which:
+You pick how Describe runs:
 
 - **Claude Code on this computer.** Describe runs the Claude Code you installed and signed into. Anthropic may count it as third-party app usage. Oriko never sees your login.
 - **Anthropic API key.** Describe calls Claude Haiku with a key from the [Claude Console](https://platform.claude.com). Paste the key in settings; it is kept in Obsidian's keychain, never in Oriko's settings file.
+- **Oriko Plus.** A subscription that runs Describe on Oriko's own server, with no Claude Code or API key to set up. It covers 1,000 clippings a month, plus a one-time 2,000 for the clippings you saved before subscribing, on up to five devices, and clippings Claude couldn't label don't count. See [what's included](https://trevware.com/oriko/), then paste the license key from your receipt under **Settings → Oriko → License key**. Questions go to [hello@trevware.com](mailto:hello@trevware.com).
 
 Oriko is independent of Anthropic.
 
@@ -95,7 +96,7 @@ Remote media is copied into your attachment folder under a name derived from its
 
 ## Privacy
 
-Oriko fetches only what you clip: the page you pasted and the media it references. The optional community resolvers send X and Instagram URLs to public mirrors (fxtwitter, kkinstagram) to reach video those sites hide; turn them off in settings to stay first party. When you run Describe, the clipping's picture or video frames and its note text go to Anthropic, through your own Claude Code or your own API key, and nowhere else. There are no analytics and nothing is reported anywhere.
+Oriko fetches only what you clip: the page you pasted and the media it references. The optional community resolvers send X and Instagram URLs to public mirrors (fxtwitter, kkinstagram) to reach video those sites hide; turn them off in settings to stay first party. When you run Describe, the clipping's picture or video frames and its note text go to Anthropic, through your own Claude Code or your own API key, and nowhere else. With Oriko Plus they go to Oriko's server (`oriko-plus.trevware.com`) and on to Anthropic, and are not stored; see its [privacy policy](https://oriko-plus.trevware.com/privacy). There are no analytics and nothing is reported anywhere.
 
 ## Installation
 
