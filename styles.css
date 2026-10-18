@@ -2808,6 +2808,23 @@
    like the rest of the settings rather than like the wall.
 --------------------------------------------------------------------------- */
 
+/* A NEW tag on a section heading, for what a recent release brought. Drawn
+   from the class alone, so taking it off is one line in settings-tab.ts. */
+.pg-settings-new .setting-item-heading .setting-item-name::after {
+  content: "NEW";
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 6px;
+  border-radius: var(--radius-s);
+  background-color: var(--interactive-accent);
+  color: var(--text-on-accent);
+  font-size: var(--font-ui-smaller);
+  font-weight: var(--font-semibold);
+  letter-spacing: 0.04em;
+  line-height: 1.4;
+  vertical-align: middle;
+}
+
 .pg-props {
   display: flex;
   flex-wrap: wrap;

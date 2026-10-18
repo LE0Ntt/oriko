@@ -187,6 +187,9 @@ export class OrikoSettingTab extends PluginSettingTab {
           {
             type: "group",
             heading: "Describe",
+            // Tagged NEW for the releases that brought it to the selection bar
+            // and to new clippings; drop the class once that is old news.
+            cls: "pg-settings-new",
             items: [
               {
                 name: "Describe clippings",
