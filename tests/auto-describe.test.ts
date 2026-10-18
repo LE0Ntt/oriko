@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AUTO_RETRY_MS, AUTO_SETTLE_MS, AutoDescribe } from "../src/core/auto-describe";
+import { AUTO_QUIET_MS, AUTO_RETRY_MS, AutoDescribe } from "../src/core/auto-describe";
 
 function harness(over: { enabled?: boolean; busy?: boolean; labeled?: string[] } = {}) {
   const state = { enabled: over.enabled ?? true, busy: over.busy ?? false, labeled: new Set(over.labeled ?? []) };
@@ -33,7 +33,7 @@ describe("AutoDescribe", () => {
     const h = harness();
     h.auto.arrived("a.md");
     expect(h.runs).toEqual([]);
-    expect(h.fire()).toBe(AUTO_SETTLE_MS);
+    expect(h.fire()).toBe(AUTO_QUIET_MS);
     expect(h.runs).toEqual([["a.md"]]);
   });
 
@@ -45,6 +45,26 @@ describe("AutoDescribe", () => {
     expect(h.timers.size).toBe(1);
     h.fire();
     expect(h.runs).toEqual([["a.md", "b.md"]]);
+  });
+
+  it("waits a couple of seconds, then checks again every second while something else runs", () => {
+    expect(AUTO_QUIET_MS).toBe(2_000);
+    expect(AUTO_RETRY_MS).toBe(1_000);
+  });
+
+  it("restarts the wait each time a waiting clip is written to, as the Web Clipper does in passes", () => {
+    const h = harness();
+    h.auto.arrived("a.md");
+    h.auto.touched("a.md");
+    expect(h.timers.size).toBe(1);
+    expect(h.fire()).toBe(AUTO_QUIET_MS);
+    expect(h.runs).toEqual([["a.md"]]);
+  });
+
+  it("pays no attention to writes to clips it isn't waiting on", () => {
+    const h = harness();
+    h.auto.touched("old.md");
+    expect(h.timers.size).toBe(0);
   });
 
   it("does nothing while the setting is off or Describe isn't ready", () => {

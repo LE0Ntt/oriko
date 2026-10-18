@@ -3,16 +3,19 @@
  * Web Clipper. The backlog is never touched: only what lands after the wall
  * has loaded comes through here, so switching this on starts nothing.
  *
- * Arrivals settle first. The Web Clipper writes a note in stages and a reel's
- * video downloads after its note exists, so a clip described the moment it
- * lands would go without its picture. Each arrival restarts the wait, which
- * also gathers a burst of clips into one run.
+ * A clip is described once it is done. One Oriko made is done on arrival,
+ * since Oriko saves the media before it writes the note. One from the Web
+ * Clipper is done when the clipper has stopped writing the note, which it
+ * does in passes, and Oriko has downloaded its picture or video. So the run
+ * waits for a short quiet spell, restarted by every arrival and by every write
+ * to a waiting clip, and then for any download queued or going. The quiet
+ * spell also gathers a burst of clips into one run.
  */
 
 export interface AutoDescribeDeps {
   /** The setting is on and Describe is ready on this device. */
   enabled: () => boolean;
-  /** A Describe run or a media download is going, so the clips wait their turn. */
+  /** A Describe run or a media download is going or queued, so the clips wait their turn. */
   busy: () => boolean;
   /** Still on the wall with no categories and no caption, which another device may have written meanwhile. */
   needs: (path: string) => boolean;
@@ -21,10 +24,10 @@ export interface AutoDescribeDeps {
   clearTimer: (id: number) => void;
 }
 
-/** How long the last arrival has to sit before the run starts. */
-export const AUTO_SETTLE_MS = 15_000;
-/** How long to wait again while something else is running. */
-export const AUTO_RETRY_MS = 5_000;
+/** How long the waiting clips go unwritten before they count as done. */
+export const AUTO_QUIET_MS = 2_000;
+/** How often to look again while a run or a download is going. */
+export const AUTO_RETRY_MS = 1_000;
 
 export class AutoDescribe {
   private waiting = new Set<string>();
@@ -35,7 +38,12 @@ export class AutoDescribe {
   arrived(path: string): void {
     if (!this.deps.enabled()) return;
     this.waiting.add(path);
-    this.schedule(AUTO_SETTLE_MS);
+    this.schedule(AUTO_QUIET_MS);
+  }
+
+  /** A waiting clip was written to: it isn't done yet. */
+  touched(path: string): void {
+    if (this.waiting.has(path)) this.schedule(AUTO_QUIET_MS);
   }
 
   /** A waiting clip that moves keeps its place under the new name. */

@@ -64,6 +64,8 @@ export default class OrikoPlugin extends Plugin {
   /** The last shared file this device wrote, to recognise its own echo. */
   private wroteShared = "";
   private archiveTimer = 0;
+  /** A download pass is scheduled and hasn't started, which Describe for new clips waits out. */
+  private archiveQueued = false;
 
   /**
    * Schedules the background archive pass, debounced: a sync storm of
@@ -72,7 +74,11 @@ export default class OrikoPlugin extends Plugin {
    */
   private scheduleArchive(delayMs: number): void {
     window.clearTimeout(this.archiveTimer);
-    this.archiveTimer = window.setTimeout(() => void this.archiver.archiveMissing(), delayMs);
+    this.archiveQueued = true;
+    this.archiveTimer = window.setTimeout(() => {
+      this.archiveQueued = false;
+      void this.archiver.archiveMissing();
+    }, delayMs);
   }
 
   private steamTimer = 0;
@@ -154,7 +160,7 @@ export default class OrikoPlugin extends Plugin {
     this.register(() => this.describer.stop());
     this.autoDescribe = new AutoDescribe({
       enabled: () => this.settings.describeNew && this.describeAvailable(),
-      busy: () => this.describer.busy || this.archiver.busy,
+      busy: () => this.describer.busy || this.archiveQueued || this.archiver.busy,
       needs: (path) => {
         const record = this.index.get(path);
         return record !== undefined && needsDescribing([record]).length > 0;
@@ -341,7 +347,9 @@ export default class OrikoPlugin extends Plugin {
     );
     this.registerEvent(
       this.app.vault.on("modify", (f: TAbstractFile) => {
-        if (f instanceof TFile && admits(f.path)) void this.index.handleModify(f);
+        if (!(f instanceof TFile)) return;
+        this.autoDescribe.touched(f.path);
+        if (admits(f.path)) void this.index.handleModify(f);
       })
     );
     this.registerEvent(
@@ -360,6 +368,7 @@ export default class OrikoPlugin extends Plugin {
     // no categories or status.
     this.registerEvent(
       this.app.metadataCache.on("changed", (f: TFile) => {
+        this.autoDescribe.touched(f.path);
         if (admits(f.path)) void this.index.handleModify(f);
       })
     );
