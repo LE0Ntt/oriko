@@ -320,6 +320,12 @@ export class OrikoSettingTab extends PluginSettingTab {
             desc: "Video tiles play while they are on screen. A wall of them uses a lot of memory, and Reduce Motion always wins.",
             control: { type: "toggle", key: "autoplayVideo" },
           },
+          {
+            name: "Open videos muted",
+            desc: "Videos you open start without sound. Unmute one and the next clips you step to keep the sound until you close the viewer.",
+            aliases: ["mute", "sound", "audio", "volume"],
+            control: { type: "toggle", key: "openMuted" },
+          },
         ],
       },
       {

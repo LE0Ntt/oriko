@@ -482,7 +482,7 @@ export class OrikoView extends ItemView {
       onOpenNote: (id) => this.openNote(id),
       onEditProperties: (id, x, y) => this.editProperties([id], x, y),
       isMenuOpen: () => this.menu?.isOpen ?? false,
-    }, () => this.look().filterProperties);
+    }, () => this.look().filterProperties, () => this.plugin.settings.openMuted);
     this.detail.onClosed = () => {
       this.grid?.focusTile(null);
       this.playback?.setEnabled(this.look().autoplayVideo);

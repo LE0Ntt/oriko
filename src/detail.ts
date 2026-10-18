@@ -187,6 +187,11 @@ export class DetailView {
   /** True only when the pause was ours to undo, not the viewer's. */
   private suspended = false;
   private closing = false;
+  /**
+   * Unmuting one video keeps the sound on for the next clip stepped to, so a
+   * run of reels can be watched with sound. Closing the viewer forgets it.
+   */
+  private soundOn = false;
 
   /** The media's true size, kept so the pane can be refitted on resize. */
   private natural: Size = { width: 0, height: 0 };
@@ -227,7 +232,9 @@ export class DetailView {
     private actions: DetailActions,
     /** The filter properties, read fresh so the panel follows a settings
         change without the view being rebuilt. */
-    private properties: () => string[]
+    private properties: () => string[],
+    /** Whether videos open without sound, read fresh like the properties. */
+    private openMuted: () => boolean
   ) {}
 
   get isOpen(): boolean {
@@ -386,6 +393,8 @@ export class DetailView {
       if (Platform.isMobile) {
         video.addEventListener("click", () => (video.controls = true), { once: true });
       }
+      video.muted = this.openMuted() && !this.soundOn;
+      video.addEventListener("volumechange", () => (this.soundOn = !video.muted));
       video.autoplay = true;
       video.loop = true;
       video.playsInline = true;
@@ -1304,6 +1313,7 @@ export class DetailView {
 
   private teardown(): void {
     this.cancelApply();
+    this.soundOn = false;
     if (this.onKey) document.removeEventListener("keydown", this.onKey, true);
     this.onKey = null;
     this.stopWatchingVisibility();

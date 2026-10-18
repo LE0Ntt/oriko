@@ -34,6 +34,8 @@ export interface OrikoSettings {
   /** Add new files in the clippings folder to the wall as they appear. */
   watchClippings: boolean;
   autoplayVideo: boolean;
+  /** Videos opened in the viewer start without sound. */
+  openMuted: boolean;
   maxBytes: number;
   thumbnailWidth: number;
   /**
@@ -135,6 +137,7 @@ export const DEFAULT_SETTINGS: OrikoSettings = {
   archiveOnCreate: true,
   watchClippings: true,
   autoplayVideo: true,
+  openMuted: true,
   maxBytes: 26214400,
   thumbnailWidth: 400,
   useResolvers: true,
