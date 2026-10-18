@@ -48,7 +48,7 @@ On iOS you can clip straight from any app's share sheet with the **[Clip to Orik
 
 ## The Wall
 
-Every clipping is a tile: pan and pinch on a phone, scroll and zoom on a desktop, and click or tap a tile to open it full screen with its properties and actions. Videos can autoplay muted while they are in view, respecting Reduce Motion. Select many at once with a drag on desktop or a long press on mobile, then move, export or delete them together.
+Every clipping is a tile: pan and pinch on a phone, scroll and zoom on a desktop, and click or tap a tile to open it full screen with its properties and actions. Videos can autoplay muted while they are in view, respecting Reduce Motion, and a video you open starts muted too until you unmute it (**Open videos muted** in settings). Select many at once with a drag on desktop or a long press on mobile, then move, export or delete them together.
 
 The full-screen view zooms and pans the original, shows the picture's own color palette, and shows the clipping's details beside it. Its Source row links out to the original page (so do **Open in browser** in the tile's context menu and in the view's bar), its bar opens the note, exports, edits properties and deletes, and each button shows its key: ⏎ for the note, B for the browser, P for properties, ⌫ to delete.
 
