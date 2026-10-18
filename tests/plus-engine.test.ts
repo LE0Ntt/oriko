@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ActivationGate,
+  PLUS_CHECKOUT,
   PLUS_IMAGE_MAX,
   PLUS_LIMITS,
   PLUS_PAGE,
@@ -103,8 +104,17 @@ describe("ActivationGate", () => {
 });
 
 describe("PLUS_PAGE", () => {
-  it("opens Oriko's page at the top", () => {
-    expect(PLUS_PAGE).toBe("https://trevware.com/oriko/");
+  it("opens Oriko's page at the top, marked as coming from settings", () => {
+    expect(PLUS_PAGE).toBe("https://trevware.com/oriko/?utm_source=oriko&utm_medium=settings");
+  });
+});
+
+describe("PLUS_CHECKOUT", () => {
+  it("opens the checkout marked as coming from settings", () => {
+    const url = new URL(PLUS_CHECKOUT);
+    expect(url.origin + url.pathname).toBe("https://buy.polar.sh/polar_cl_pzcr2OMDKqtA0UBKHdiRqnI6h68WBHNIrLOst49JIJi");
+    expect(url.searchParams.get("utm_source")).toBe("oriko");
+    expect(url.searchParams.get("utm_medium")).toBe("settings");
   });
 });
 

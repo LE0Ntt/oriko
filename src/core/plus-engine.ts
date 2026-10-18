@@ -11,10 +11,12 @@ import type { Depth, DescribeJob, EngineFailure, RunOutcome } from "./claude-eng
 export const PLUS_BASE = "https://oriko-plus.trevware.com";
 /** Launched in 0.1.70: settings offer Oriko Plus and show Subscribe to anyone without a key. */
 export const PLUS_LAUNCHED = true;
+/** Marks a visit as coming from Oriko's settings, in the site's stats and in Polar's checkouts. */
+const FROM_SETTINGS = "utm_source=oriko&utm_medium=settings";
 /** Where Subscribe goes: the Polar checkout, with both plans. */
-export const PLUS_CHECKOUT = "https://buy.polar.sh/polar_cl_pzcr2OMDKqtA0UBKHdiRqnI6h68WBHNIrLOst49JIJi";
+export const PLUS_CHECKOUT = `https://buy.polar.sh/polar_cl_pzcr2OMDKqtA0UBKHdiRqnI6h68WBHNIrLOst49JIJi?${FROM_SETTINGS}`;
 /** Oriko's page, from the top: the Learn more link beside Subscribe. */
-export const PLUS_PAGE = "https://trevware.com/oriko/";
+export const PLUS_PAGE = `https://trevware.com/oriko/?${FROM_SETTINGS}`;
 export const PLUS_PROTOCOL = 1;
 /** Obsidian keychain id for the license key. */
 export const LICENSE_SECRET = "oriko-plus-license";
