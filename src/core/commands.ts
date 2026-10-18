@@ -79,6 +79,11 @@ export interface PaletteCommand {
   run?: () => void;
 }
 
+/** Whether a selection can be described now: Describe is ready on this device and no run is going. */
+export function offersDescribe(describe: DescribeContext | null): boolean {
+  return describe !== null && !describe.running;
+}
+
 /** What Describe can offer right now. Null hides every Describe row. */
 export interface DescribeContext {
   running: boolean;
@@ -311,8 +316,7 @@ function selectionCommands(context: PaletteContext): PaletteCommand[] {
     });
   }
 
-  const describe = context.describe;
-  if (describe && !describe.running) {
+  if (offersDescribe(context.describe)) {
     items.push({
       id: "describe:selected",
       label: "Describe",
@@ -571,7 +575,8 @@ function captureCommands(context: PaletteContext): PaletteCommand[] {
 
 const DESCRIBE_WORDS = "claude ai tag caption categorize label text ocr";
 
-const DEPTHS: Array<{ depth: Depth; label: string; icon: string; detail: string }> = [
+/** How much Describe says about each clip, wherever it is offered: the palette, the selection bar and the right-click menu. */
+export const DESCRIBE_DEPTHS: Array<{ depth: Depth; label: string; icon: string; detail: string }> = [
   { depth: "broad", label: "Broad", icon: "signal-low", detail: "1–2 general labels" },
   { depth: "standard", label: "Standard", icon: "signal-medium", detail: "up to 4 labels" },
   { depth: "specific", label: "Specific", icon: "signal-high", detail: "up to 6 labels" },
@@ -584,7 +589,7 @@ function depthStage(title: string, subject: string[], run: (depth: Depth) => voi
     placeholder: "Pick a depth…",
     subject,
     items: () =>
-      DEPTHS.map((d) => ({
+      DESCRIBE_DEPTHS.map((d) => ({
         id: `describe:depth:${d.depth}`,
         label: d.label,
         icon: d.icon,

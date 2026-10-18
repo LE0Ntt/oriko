@@ -6,8 +6,8 @@ import { canShareFiles, shareFiles, shareNotice } from "./core/share";
 import type { ShareItem } from "./core/share";
 import { mimeForPath } from "./core/formats";
 import { ActionBar } from "./action-bar";
-import { buildCommands, facetValueCommands } from "./core/commands";
-import type { PaletteContext } from "./core/commands";
+import { DESCRIBE_DEPTHS, buildCommands, facetValueCommands, offersDescribe } from "./core/commands";
+import type { DescribeContext, PaletteContext } from "./core/commands";
 import { ConfirmDeleteModal } from "./confirm";
 import { isDateToken, todayISO } from "./core/dates";
 import { settled } from "./core/settle";
@@ -297,8 +297,9 @@ export class OrikoView extends ItemView {
 
     this.actionBar = new ActionBar(this.contentEl, {
       onProperties: (x, y) => this.editProperties(this.grid?.selectedIds() ?? [], x, y),
+      onDescribe: (x, y) => this.menu?.open(this.describeRows(this.grid?.selectedIds() ?? []), x, y),
       onDelete: () => this.removeSelection(),
-      // Both routed by what is picked: the bar is the same four buttons
+      // Both routed by what is picked: the bar is the same buttons
       // whichever it is, and the kind is what they mean.
       onMoveToGrid: (x, y) => {
         const folders = this.selectedFolders();
@@ -318,6 +319,7 @@ export class OrikoView extends ItemView {
         this.grid?.selectionKind() === "folders" ? "folders" : "clippings"
       );
       this.actionBar?.setFolderable(this.canFile());
+      this.actionBar?.setDescribable(offersDescribe(this.describeContext()));
       if (ids.length === 0) this.releaseRefresh();
       // The wall's own controls give up the bottom to the selection bar,
       // there being room for only one of them across a phone.
@@ -355,6 +357,7 @@ export class OrikoView extends ItemView {
       progress: (state) => {
         this.spaceBar?.setDescribeProgress(state);
         this.grid?.setDescribeRun(state !== null);
+        this.actionBar?.setDescribable(offersDescribe(this.describeContext()));
       },
       finished: (summary) => this.spaceBar?.finishDescribe(summaryText(summary)),
     });
@@ -928,7 +931,7 @@ export class OrikoView extends ItemView {
     const count = n === 1 ? "1 selected" : `${n} selected`;
 
     const reach: MenuItem[] = [];
-    const describe: MenuItem[] = this.propertyRows(ids);
+    const describe: MenuItem[] = [];
     const file: MenuItem[] = [];
     const destroy: MenuItem[] = [];
 
@@ -981,6 +984,15 @@ export class OrikoView extends ItemView {
       });
     }
 
+    if (offersDescribe(this.describeContext())) {
+      describe.push({
+        icon: "sparkles",
+        label: "Describe",
+        submenu: this.describeRows(ids),
+      });
+    }
+    describe.push(...this.propertyRows(ids));
+
     if (this.canFile()) {
       file.push({
         icon: "folder",
@@ -1013,6 +1025,22 @@ export class OrikoView extends ItemView {
       the selection with it. Folders offer the same, and a selection that has
       nowhere to go is the reason: the way out of a wall with one grid on it
       is to make the second one from here. */
+  /** What Describe can offer on this device right now, or null where it is off or not ready. */
+  private describeContext(): DescribeContext | null {
+    if (!this.plugin.describeAvailable()) return null;
+    return this.plugin.describer.context(needsDescribing(this.plugin.index.records()).map((r) => r.path));
+  }
+
+  /** Describe's depths for a selection, as the selection bar and the right-click menu list them. */
+  private describeRows(ids: string[]): MenuItem[] {
+    return DESCRIBE_DEPTHS.map((d) => ({
+      icon: d.icon,
+      label: d.label,
+      detail: d.detail,
+      onSelect: () => void this.plugin.describer.describe(ids, this.describeWriter(), { depth: d.depth, selected: true }),
+    }));
+  }
+
   private gridMoveRows(ids: string[]): MenuItem[] {
     const grids = this.allGrids();
     return [
@@ -1780,9 +1808,7 @@ export class OrikoView extends ItemView {
       filter: this.activeFilter(),
       hasSystem: this.onDisk(),
       canExport: this.onDisk() || canShareFiles(navigator),
-      describe: this.plugin.describeAvailable()
-        ? this.plugin.describer.context(needsDescribing(this.plugin.index.records()).map((r) => r.path))
-        : null,
+      describe: this.describeContext(),
       // Every row runs the method its context-menu equivalent runs. The two
       // surfaces list different things; neither reimplements the work.
       actions: {

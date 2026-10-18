@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildCommands, facetValueCommands } from "../src/core/commands";
+import { DESCRIBE_DEPTHS, buildCommands, facetValueCommands, offersDescribe } from "../src/core/commands";
 import type { DescribeContext, PaletteContext, ReviewView } from "../src/core/commands";
 import { emptyFilter, facetDefs } from "../src/core/filter";
 import { searchPalette } from "../src/core/palette-results";
@@ -537,6 +537,20 @@ describe("describe commands", () => {
     expect(find(ctx, "describe:stop")?.detail).toBe("23 of 180");
     expect(find(ctx, "describe:uncategorized")).toBeUndefined();
     expect(find(ctx, "describe:selected")).toBeUndefined();
+  });
+
+  it("offers Describe on a selection only while Describe is ready and idle", () => {
+    expect(offersDescribe(null)).toBe(false);
+    expect(offersDescribe(describing())).toBe(true);
+    expect(offersDescribe(describing({ running: true }))).toBe(false);
+  });
+
+  it("gives the selection bar and the right-click menu the palette's three depths", () => {
+    expect(DESCRIBE_DEPTHS.map((d) => [d.depth, d.label, d.icon, d.detail])).toEqual([
+      ["broad", "Broad", "signal-low", "1–2 general labels"],
+      ["standard", "Standard", "signal-medium", "up to 4 labels"],
+      ["specific", "Specific", "signal-high", "up to 6 labels"],
+    ]);
   });
 
   const reviewing = (over: Partial<ReviewView> = {}): ReviewView => ({

@@ -7,6 +7,8 @@ export type SelectionKind = "folders" | "clippings";
 export interface ActionBarHandlers {
   /** Opens the property menu for the selection, anchored to the button. */
   onProperties: (x: number, y: number) => void;
+  /** Opens Describe's depths for the selection, anchored to the button. */
+  onDescribe: (x: number, y: number) => void;
   /** Deletes clippings, or asks what removing a folder should take with it. */
   onDelete: () => void;
   /** Opens the list of grids to move the selection to, anchored to the button. */
@@ -31,9 +33,11 @@ export class ActionBar {
   private root: HTMLElement;
   private count: HTMLElement;
   private properties: HTMLElement;
+  private describe: HTMLElement;
   private folder: HTMLElement;
   private trash: HTMLElement;
   private folderable = false;
+  private describable = false;
   private kind: SelectionKind = "clippings";
 
   constructor(container: HTMLElement, handlers: ActionBarHandlers) {
@@ -63,6 +67,13 @@ export class ActionBar {
       handlers.onProperties(x, y);
     });
 
+    // Describe beside Properties: both say what the selection is, one by
+    // hand and one by Claude. Its depths rise out of the bar like the moves.
+    this.describe = this.button("sparkles", "Describe", "", () => {
+      const { x, y } = anchorOf(this.describe);
+      handlers.onDescribe(x, y);
+    });
+
     // Where the selection lives, beside what it is. Anchored to their own
     // buttons, as the property menu is, so the list rises out of the bar.
     const grid = this.button("corner-up-right", "Move to grid", "", () => {
@@ -77,6 +88,12 @@ export class ActionBar {
     this.trash = this.button("trash-2", "Delete", "⌫", handlers.onDelete);
   }
 
+  /** Describe shows only while it is ready on this device and not already running. */
+  setDescribable(describable: boolean): void {
+    this.describable = describable;
+    this.applyKind();
+  }
+
   /** Folders live on grids that can be filed into; elsewhere the button goes. */
   setFolderable(folderable: boolean): void {
     this.folderable = folderable;
@@ -86,15 +103,16 @@ export class ActionBar {
   /**
    * Shows the buttons that fit what is picked.
    *
-   * A folder has no properties to edit and does not go inside another
-   * folder, so those two leave rather than sit there inert: the bar is four
-   * icons wide and a dead one is worse than a missing one. Where it goes and
-   * whether it stays are the two questions a folder does answer, and they
-   * are the two that remain.
+   * A folder has no properties to edit, nothing for Describe to look at,
+   * and does not go inside another folder, so those three leave rather than
+   * sit there inert: the bar is a handful of icons wide and a dead one is
+   * worse than a missing one. Where it goes and whether it stays are the two
+   * questions a folder does answer, and they are the two that remain.
    */
   private applyKind(): void {
     const clippings = this.kind === "clippings";
     this.properties.toggle(clippings);
+    this.describe.toggle(clippings && this.describable);
     this.folder.toggle(clippings && this.folderable);
     // Removing a folder takes nothing away on its own, so the button says
     // so; what it does to the clippings inside is the question it asks.
