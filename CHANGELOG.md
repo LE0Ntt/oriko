@@ -5,6 +5,17 @@ All notable changes to Oriko will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.73] - 2026-10-18
+
+### Added
+- **Describe new clippings as they land.** Turn on Settings → Oriko → Describe new clippings and each clip that arrives while the wall is open gets its labels a few seconds later, whether you clipped it in Oriko or with the Web Clipper. Clips that land close together go as one run. Clippings already on your wall stay put for Describe uncategorized to pick up.
+- **Describe is in the selection bar and the right-click menu.** Select some tiles and click the sparkles button in the selection bar, or right-click a tile and choose Describe, then pick Broad, Standard or Specific.
+- **Videos you open start muted.** Opening a clip no longer blasts its sound at you. Unmute one and the clips you step to next keep their sound until you close the viewer. If you'd like sound from the start, turn off Settings → Oriko → Open videos muted.
+
+### Changed
+- **Describe has its own section at the top of Oriko's settings.** Everything else sits under a heading now too: Clippings, Wall, Downloads, Grids and the rest.
+- **The palette says when Describe can't run.** If Describe is on but missing something, like an Oriko Plus license key, ⌘K shows a row that says what's missing and where to add it.
+
 ## [0.1.72] - 2026-10-18
 
 ### Fixed
