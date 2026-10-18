@@ -145,6 +145,11 @@ export class DescribeService {
     return this.runner.context(uncategorized);
   }
 
+  /** A run is going. */
+  get busy(): boolean {
+    return this.runner.busy;
+  }
+
   describe(paths: string[], writer: DescribeWriter, request: RunRequest = {}): Promise<void> {
     return this.runner.describe(paths, writer, request);
   }

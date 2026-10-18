@@ -195,6 +195,10 @@ export class DescribeRunner {
     this.session = null;
   }
 
+  get busy(): boolean {
+    return this.running;
+  }
+
   context(uncategorized: string[]): DescribeContext {
     return {
       running: this.running,

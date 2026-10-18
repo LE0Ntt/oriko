@@ -42,10 +42,12 @@ import { ApiKeyEngine } from "./api-engine";
 import { ClaudeCodeEngine, claudeAvailable } from "./claude-engine";
 import { PlusAccount, OrikoPlusEngine } from "./plus-engine";
 import { INSTALL_KEY, LICENSE_SECRET, installLabel } from "./core/plus-engine";
-import { SwitchingEngine, effectiveEngine, engineReady } from "./core/engines";
+import { SwitchingEngine, effectiveEngine, engineBlocker, engineReady } from "./core/engines";
 import { API_KEY_SECRET } from "./core/engines";
-import type { EngineKind } from "./core/engines";
+import type { EngineBlocker, EngineKind, EngineState } from "./core/engines";
 import { DescribeService } from "./describe-service";
+import { AutoDescribe } from "./core/auto-describe";
+import { needsDescribing } from "./core/describe";
 
 export default class OrikoPlugin extends Plugin {
   settings: OrikoSettings = DEFAULT_SETTINGS;
@@ -55,6 +57,8 @@ export default class OrikoPlugin extends Plugin {
   posts!: PostService;
   capture!: CaptureService;
   describer!: DescribeService;
+  /** Describes clippings that land while the wall is open, when the setting asks for it. */
+  private autoDescribe!: AutoDescribe;
   /** Oriko Plus's account calls, for the engine and for settings. */
   plus!: PlusAccount;
   /** The last shared file this device wrote, to recognise its own echo. */
@@ -148,6 +152,21 @@ export default class OrikoPlugin extends Plugin {
     await this.describer.load();
     // A run still going when the plugin unloads would keep Claude Code processes alive.
     this.register(() => this.describer.stop());
+    this.autoDescribe = new AutoDescribe({
+      enabled: () => this.settings.describeNew && this.describeAvailable(),
+      busy: () => this.describer.busy || this.archiver.busy,
+      needs: (path) => {
+        const record = this.index.get(path);
+        return record !== undefined && needsDescribing([record]).length > 0;
+      },
+      // Through the wall, which owns the undo entry and redraws the tiles as
+      // labels land. With no wall open the clips stay for Describe uncategorized.
+      run: (paths) => this.wall()?.describeArrived(paths),
+      setTimer: (fn, ms) => window.setTimeout(fn, ms),
+      clearTimer: (id) => window.clearTimeout(id),
+    });
+    this.index.onArrived((path) => this.autoDescribe.arrived(path));
+    this.register(() => this.autoDescribe.clear());
     this.register(() => window.clearTimeout(this.steamTimer));
     // Prices move while Obsidian stays open for days. The pass asks only
     // about games whose answer is a day old, so an hourly look costs nothing.
@@ -330,7 +349,9 @@ export default class OrikoPlugin extends Plugin {
     );
     this.registerEvent(
       this.app.vault.on("rename", (f: TAbstractFile, oldPath: string) => {
-        if (f instanceof TFile && admits(oldPath)) void this.index.handleRename(f, oldPath);
+        if (!(f instanceof TFile)) return;
+        this.autoDescribe.renamed(oldPath, f.path);
+        if (admits(oldPath)) void this.index.handleRename(f, oldPath);
       })
     );
 
@@ -549,15 +570,31 @@ export default class OrikoPlugin extends Plugin {
   /** Describe is offered on desktop, when switched on, and once its engine can run. */
   describeAvailable(): boolean {
     if (!this.settings.describeEnabled || !Platform.isDesktopApp) return false;
+    return engineReady(this.describeState());
+  }
+
+  /** What the engine is missing on this device, when Describe is on but can't run. */
+  describeBlocked(): EngineBlocker | null {
+    if (!this.settings.describeEnabled || !Platform.isDesktopApp) return null;
+    return engineBlocker(this.describeState());
+  }
+
+  private describeState(): EngineState {
     const engine = this.describeEngine();
-    return engineReady({
+    return {
       enabled: true,
       desktop: true,
       engine,
       claudeFound: engine === "claude-code" && claudeAvailable(),
       hasKey: engine === "api-key" && this.describeKey() !== null,
       hasLicense: engine === "oriko-plus" && this.plusLicense() !== null,
-    });
+    };
+  }
+
+  /** The first open wall, or null when none is open. */
+  private wall(): OrikoView | null {
+    const leaf = this.app.workspace.getLeavesOfType(VIEW_TYPE_GRID)[0];
+    return leaf?.view instanceof OrikoView ? leaf.view : null;
   }
 
   /** The engine Describe runs on: the user's pick, or Claude Code when installed until they pick. */

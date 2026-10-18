@@ -123,6 +123,8 @@ export interface OrikoSettings {
   describeEngine: EngineKind | "";
   /** Claude Code bills ANTHROPIC_API_KEY when Obsidian's environment has one; this has it use the Claude login. */
   describePreferLogin: boolean;
+  /** Describes each clipping that arrives while the wall is open, a few seconds after it lands. */
+  describeNew: boolean;
   /** Full path to Claude Code, "" to discover it on PATH and in common installs. */
   claudePath: string;
 }
@@ -158,5 +160,6 @@ export const DEFAULT_SETTINGS: OrikoSettings = {
   describeEnabled: false,
   describeEngine: "",
   describePreferLogin: false,
+  describeNew: false,
   claudePath: "",
 };

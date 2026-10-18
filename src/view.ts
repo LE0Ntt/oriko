@@ -1031,6 +1031,11 @@ export class OrikoView extends ItemView {
     return this.plugin.describer.context(needsDescribing(this.plugin.index.records()).map((r) => r.path));
   }
 
+  /** New arrivals, described as Describe uncategorized would describe them. */
+  describeArrived(paths: string[]): void {
+    void this.plugin.describer.describe(paths, this.describeWriter(), { depth: "standard" });
+  }
+
   /** Describe's depths for a selection, as the selection bar and the right-click menu list them. */
   private describeRows(ids: string[]): MenuItem[] {
     return DESCRIBE_DEPTHS.map((d) => ({
@@ -1809,6 +1814,7 @@ export class OrikoView extends ItemView {
       hasSystem: this.onDisk(),
       canExport: this.onDisk() || canShareFiles(navigator),
       describe: this.describeContext(),
+      describeBlocked: this.plugin.describeBlocked(),
       // Every row runs the method its context-menu equivalent runs. The two
       // surfaces list different things; neither reimplements the work.
       actions: {
@@ -1849,6 +1855,7 @@ export class OrikoView extends ItemView {
         reviewShown: () => this.plugin.describer.shown(),
         discardClip: () => void this.plugin.describer.discardClip(this.describeWriter()),
         discardAll: () => void this.plugin.describer.discardAll(this.describeWriter()),
+        showHint: (text) => new Notice(`Oriko: ${text}`),
         applySuggestions: () => void this.plugin.describer.apply(this.describeWriter()),
       },
     };

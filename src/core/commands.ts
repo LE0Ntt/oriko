@@ -1,4 +1,5 @@
 import type { Depth } from "./claude-engine";
+import type { EngineBlocker } from "./engines";
 import { isEmptyValue, valueLabel } from "./filter";
 import type { FacetDef, FacetValue, FilterState } from "./filter";
 import type { FolderSpace } from "./folders";
@@ -141,6 +142,8 @@ export interface PaletteActions {
   reviewShown(): void;
   discardClip(): void;
   discardAll(): void;
+  /** Says how to fix something, for a row that can only explain. */
+  showHint(text: string): void;
   applySuggestions(): void;
 }
 
@@ -172,8 +175,10 @@ export interface PaletteContext {
    * somewhere to put it.
    */
   canExport: boolean;
-  /** Null off desktop, with Describe switched off, or when Claude Code is not found. */
+  /** Null off desktop, with Describe switched off, or when its engine can't run. */
   describe: DescribeContext | null;
+  /** What the engine is missing when Describe is on but can't run, shown in place of its rows. */
+  describeBlocked?: EngineBlocker | null;
   actions: PaletteActions;
 }
 
@@ -691,8 +696,23 @@ function reviewStage(review: ReviewView, actions: PaletteActions): PaletteStage 
 
 function describeCommands(context: PaletteContext): PaletteCommand[] {
   const describe = context.describe;
-  if (!describe) return [];
   const { actions } = context;
+  if (!describe) {
+    // Describe is on and has nothing to offer: say why, so the rows aren't
+    // simply gone with no clue where they went.
+    const blocked = context.describeBlocked;
+    if (!blocked) return [];
+    return [
+      {
+        id: "describe:blocked",
+        label: blocked.label,
+        icon: "sparkles",
+        section: "Describe",
+        keywords: `describe uncategorized selected ${DESCRIBE_WORDS} setup key license`,
+        run: () => actions.showHint(blocked.hint),
+      },
+    ];
+  }
   const items: PaletteCommand[] = [];
 
   if (describe.running) {

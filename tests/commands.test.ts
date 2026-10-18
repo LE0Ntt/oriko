@@ -40,6 +40,7 @@ const actions = {
   reviewShown: noop,
   discardClip: noop,
   discardAll: noop,
+  showHint: noop,
 };
 
 function context(over: Partial<PaletteContext> = {}): PaletteContext {
@@ -537,6 +538,27 @@ describe("describe commands", () => {
     expect(find(ctx, "describe:stop")?.detail).toBe("23 of 180");
     expect(find(ctx, "describe:uncategorized")).toBeUndefined();
     expect(find(ctx, "describe:selected")).toBeUndefined();
+  });
+
+  it("says what Describe is missing, in place of its rows, when it is on but can't run", () => {
+    let hint = "";
+    const ctx = context({
+      selection: ["a.md"],
+      describe: null,
+      describeBlocked: { label: "Describe needs a license key", hint: "Paste it under Settings." },
+      actions: { ...actions, showHint: (text: string) => (hint = text) },
+    });
+    const row = find(ctx, "describe:blocked");
+    expect(row?.label).toBe("Describe needs a license key");
+    expect(row?.section).toBe("Describe");
+    expect(find(ctx, "describe:selected")).toBeUndefined();
+    row?.run?.();
+    expect(hint).toBe("Paste it under Settings.");
+  });
+
+  it("shows no Describe rows at all while Describe is off", () => {
+    const ctx = context({ selection: ["a.md"], describe: null, describeBlocked: null });
+    expect(buildCommands(ctx).filter((c) => c.id.startsWith("describe:"))).toEqual([]);
   });
 
   it("offers Describe on a selection only while Describe is ready and idle", () => {

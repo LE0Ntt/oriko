@@ -38,6 +38,25 @@ export function engineReady(state: EngineState): boolean {
   return state.engine === "api-key" ? state.hasKey : state.hasLicense;
 }
 
+/** Why Describe is on but can't run, for the palette to say so in place of its rows. */
+export interface EngineBlocker {
+  label: string;
+  hint: string;
+}
+
+/** What the engine in force is missing, or null when it can run or Describe is off. */
+export function engineBlocker(state: EngineState): EngineBlocker | null {
+  if (!state.enabled || !state.desktop || engineReady(state)) return null;
+  const other = ", or pick another engine.";
+  if (state.engine === "claude-code") {
+    return { label: "Describe can't find Claude Code", hint: `Set Claude Code path under Settings → Oriko${other}` };
+  }
+  if (state.engine === "api-key") {
+    return { label: "Describe needs an API key", hint: `Paste it under Settings → Oriko → Anthropic API key${other}` };
+  }
+  return { label: "Describe needs a license key", hint: `Paste it under Settings → Oriko → License key${other}` };
+}
+
 /** Runs each batch on the engine chosen at that moment, so a change in settings needs no reload. */
 export class SwitchingEngine implements DescribeEngine {
   constructor(

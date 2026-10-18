@@ -31,6 +31,12 @@ export function sortRecords(records: ClippingRecord[]): ClippingRecord[] {
 export class ClippingIndex {
   private byPath = new Map<string, ClippingRecord>();
   private listeners: Array<() => void> = [];
+  private arrivals: Array<(path: string) => void> = [];
+  /**
+   * Set once the first scan is done. Obsidian announces every file it finds
+   * as it loads the vault, and those must not count as arrivals.
+   */
+  private scanned = false;
   /** sortRecords copies and sorts the whole map, and records() has several
       callers per repaint. Dropped on every mutation below. */
   private sorted: ClippingRecord[] | null = null;
@@ -64,6 +70,11 @@ export class ClippingIndex {
     for (const cb of this.listeners) cb();
   }
 
+  /** A clipping that was not on the wall a moment ago: a clip, the Web Clipper or a sync. */
+  onArrived(cb: (path: string) => void): void {
+    this.arrivals.push(cb);
+  }
+
   async rebuild(): Promise<void> {
     this.byPath.clear();
     this.sorted = null;
@@ -71,6 +82,7 @@ export class ClippingIndex {
       .getMarkdownFiles()
       .filter((f) => isInFolder(f.path, this.folder()));
     for (const file of files) await this.ingest(file);
+    this.scanned = true;
     this.emit();
   }
 
@@ -116,8 +128,10 @@ export class ClippingIndex {
 
   async handleModify(file: TFile): Promise<void> {
     if (!isInFolder(file.path, this.folder())) return;
+    const arrived = this.scanned && !this.byPath.has(file.path);
     await this.ingest(file);
     this.emit();
+    if (arrived) for (const cb of this.arrivals) cb(file.path);
   }
 
   handleDelete(path: string): void {

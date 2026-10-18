@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SwitchingEngine, effectiveEngine, engineReady } from "../src/core/engines";
+import { SwitchingEngine, effectiveEngine, engineBlocker, engineReady } from "../src/core/engines";
 import type { DescribeEngine } from "../src/core/describe-run";
 
 const fake = (name: string, log: string[]): DescribeEngine => ({
@@ -40,6 +40,32 @@ describe("engineReady", () => {
   it("stays off when switched off or away from the desktop", () => {
     expect(engineReady({ ...base, engine: "claude-code", enabled: false })).toBe(false);
     expect(engineReady({ ...base, engine: "claude-code", desktop: false })).toBe(false);
+  });
+});
+
+describe("engineBlocker", () => {
+  const base = { enabled: true, desktop: true, claudeFound: true, hasKey: false, hasLicense: false };
+
+  it("says nothing once the engine can run, or while Describe is off or away from the desktop", () => {
+    expect(engineBlocker({ ...base, engine: "claude-code" })).toBeNull();
+    expect(engineBlocker({ ...base, engine: "oriko-plus", hasLicense: true })).toBeNull();
+    expect(engineBlocker({ ...base, engine: "oriko-plus", enabled: false })).toBeNull();
+    expect(engineBlocker({ ...base, engine: "oriko-plus", desktop: false })).toBeNull();
+  });
+
+  it("names what each engine is missing and where to put it", () => {
+    expect(engineBlocker({ ...base, engine: "claude-code", claudeFound: false })).toEqual({
+      label: "Describe can't find Claude Code",
+      hint: "Set Claude Code path under Settings → Oriko, or pick another engine.",
+    });
+    expect(engineBlocker({ ...base, engine: "api-key" })).toEqual({
+      label: "Describe needs an API key",
+      hint: "Paste it under Settings → Oriko → Anthropic API key, or pick another engine.",
+    });
+    expect(engineBlocker({ ...base, engine: "oriko-plus" })).toEqual({
+      label: "Describe needs a license key",
+      hint: "Paste it under Settings → Oriko → License key, or pick another engine.",
+    });
   });
 });
 

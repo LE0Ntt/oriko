@@ -63,6 +63,11 @@ export class ArchiveService {
 
   private readonly announceNow: ProblemSink = (problem) => this.announce([problem]);
 
+  /** A background download pass is going. */
+  get busy(): boolean {
+    return this.running;
+  }
+
   onChange(cb: () => void): void {
     this.listeners.push(cb);
   }
