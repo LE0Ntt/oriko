@@ -72,7 +72,7 @@ Any frontmatter property can become a filter. Enable properties under **Settings
 
 ## Describe
 
-A pasted screenshot or a reel with no caption is hard to find again. **Describe** looks at the picture, or a few frames of a video, along with the note's text, and writes categories, a one-line `caption` and any text in the picture (`media_text`) into the frontmatter, so the palette finds the clip by what is in it. Turn it on under **Settings → Oriko → Describe clippings** on desktop, then run **Describe uncategorized** from ⌘K, or select tiles and choose **Describe** from the palette, the selection bar or the right-click menu. Turn on **Describe new clippings** too and each clip that lands while the wall is open gets described a few seconds later, on its own. Categories it suggests that are not on your wall yet wait in **Review suggestions** until you approve them.
+A pasted screenshot or a reel with no caption is hard to find again. **Describe** looks at the picture, or a few frames of a video, along with the note's text, and writes categories, a one-line `caption` and any text in the picture (`media_text`) into the frontmatter, so the palette finds the clip by what is in it. Turn it on under **Settings → Oriko → Describe clippings** on desktop, then run **Describe uncategorized** from ⌘K, or select tiles and choose **Describe** from the palette, the selection bar or the right-click menu. Turn on **Describe new clippings** too and describing becomes the last step of clipping, while the wall is open; clips from your phone get described once they sync in with their pictures. Categories it suggests that are not on your wall yet wait in **Review suggestions** until you approve them.
 
 You pick how Describe runs:
 

@@ -150,12 +150,15 @@ export class DescribeService {
     return this.runner.busy;
   }
 
+  /** Told whenever a run ends, whoever started it. */
+  onIdle: (() => void) | null = null;
+
   describe(paths: string[], writer: DescribeWriter, request: RunRequest = {}): Promise<void> {
-    return this.runner.describe(paths, writer, request);
+    return this.runner.describe(paths, writer, request).finally(() => this.onIdle?.());
   }
 
   retryFailed(writer: DescribeWriter): Promise<void> {
-    return this.runner.retryFailed(writer);
+    return this.runner.retryFailed(writer).finally(() => this.onIdle?.());
   }
 
   stop(): void {

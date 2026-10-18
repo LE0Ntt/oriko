@@ -1032,8 +1032,8 @@ export class OrikoView extends ItemView {
   }
 
   /** New arrivals, described as Describe uncategorized would describe them. */
-  describeArrived(paths: string[]): void {
-    void this.plugin.describer.describe(paths, this.describeWriter(), { depth: "standard" });
+  describeArrived(paths: string[]): Promise<void> {
+    return this.plugin.describer.describe(paths, this.describeWriter(), { depth: "standard" });
   }
 
   /** Describe's depths for a selection, as the selection bar and the right-click menu list them. */

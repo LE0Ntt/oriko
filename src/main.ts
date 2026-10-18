@@ -46,7 +46,7 @@ import { SwitchingEngine, effectiveEngine, engineBlocker, engineReady } from "./
 import { API_KEY_SECRET } from "./core/engines";
 import type { EngineBlocker, EngineKind, EngineState } from "./core/engines";
 import { DescribeService } from "./describe-service";
-import { AutoDescribe } from "./core/auto-describe";
+import { AutoDescribe, clipComplete } from "./core/auto-describe";
 import { needsDescribing } from "./core/describe";
 
 export default class OrikoPlugin extends Plugin {
@@ -77,7 +77,9 @@ export default class OrikoPlugin extends Plugin {
     this.archiveQueued = true;
     this.archiveTimer = window.setTimeout(() => {
       this.archiveQueued = false;
-      void this.archiver.archiveMissing();
+      // The download is a new clipping's last step here, so its end is
+      // when Describe for new clippings looks again.
+      void this.archiver.archiveMissing().then(() => this.autoDescribe.check());
     }, delayMs);
   }
 
@@ -160,18 +162,28 @@ export default class OrikoPlugin extends Plugin {
     this.register(() => this.describer.stop());
     this.autoDescribe = new AutoDescribe({
       enabled: () => this.settings.describeNew && this.describeAvailable(),
-      busy: () => this.describer.busy || this.archiveQueued || this.archiver.busy,
+      complete: (path) => {
+        const record = this.index.get(path);
+        if (!record) return false;
+        const downloading = this.settings.archiveOnCreate && (this.archiveQueued || this.archiver.busy);
+        return clipComplete(
+          record.media,
+          (link) => this.app.metadataCache.getFirstLinkpathDest(link, path) !== null,
+          downloading
+        );
+      },
       needs: (path) => {
         const record = this.index.get(path);
         return record !== undefined && needsDescribing([record]).length > 0;
       },
+      busy: () => this.describer.busy,
       // Through the wall, which owns the undo entry and redraws the tiles as
       // labels land. With no wall open the clips stay for Describe uncategorized.
-      run: (paths) => this.wall()?.describeArrived(paths),
-      setTimer: (fn, ms) => window.setTimeout(fn, ms),
-      clearTimer: (id) => window.clearTimeout(id),
+      run: (paths) => this.wall()?.describeArrived(paths) ?? Promise.resolve(),
     });
     this.index.onArrived((path) => this.autoDescribe.arrived(path));
+    // A run anyone started ends with a look at the clips queued behind it.
+    this.describer.onIdle = () => this.autoDescribe.check();
     this.register(() => this.autoDescribe.clear());
     this.register(() => window.clearTimeout(this.steamTimer));
     // Prices move while Obsidian stays open for days. The pass asks only
@@ -184,6 +196,10 @@ export default class OrikoPlugin extends Plugin {
       this.index
     );
     this.capture.onXDetails = (id, details) => this.posts.seed("x", id, details);
+    // Describe for new clippings is capture's own last step: capture says
+    // which note it is about to write, and hands it over once it is done.
+    this.capture.onClaim = (path) => this.autoDescribe.claim(path);
+    this.capture.onCaptured = (path) => this.autoDescribe.captured(path);
 
     this.registerView(
       VIEW_TYPE_GRID,
@@ -335,21 +351,23 @@ export default class OrikoPlugin extends Plugin {
 
     this.registerEvent(
       this.app.vault.on("create", (f: TAbstractFile) => {
-        if (!(f instanceof TFile) || !admits(f.path)) return;
-        void this.index.handleModify(f).then(() => {
-          // The Web Clipper writes the body and frontmatter in stages, so
-          // give it a moment before scanning for media to download.
-          if (this.settings.archiveOnCreate) {
-            this.scheduleArchive(2000);
-          }
-        });
+        if (!(f instanceof TFile)) return;
+        // A picture or video a synced clip was waiting on may be this file.
+        this.autoDescribe.check();
+        if (!admits(f.path)) return;
+        // The Web Clipper writes the body and frontmatter in stages, so
+        // give it a moment before scanning for media to download. Queued
+        // before the scan, so a new clip counts as downloading from the
+        // moment it arrives.
+        if (this.settings.archiveOnCreate) {
+          this.scheduleArchive(2000);
+        }
+        void this.index.handleModify(f);
       })
     );
     this.registerEvent(
       this.app.vault.on("modify", (f: TAbstractFile) => {
-        if (!(f instanceof TFile)) return;
-        this.autoDescribe.touched(f.path);
-        if (admits(f.path)) void this.index.handleModify(f);
+        if (f instanceof TFile && admits(f.path)) void this.index.handleModify(f);
       })
     );
     this.registerEvent(
@@ -368,7 +386,6 @@ export default class OrikoPlugin extends Plugin {
     // no categories or status.
     this.registerEvent(
       this.app.metadataCache.on("changed", (f: TFile) => {
-        this.autoDescribe.touched(f.path);
         if (admits(f.path)) void this.index.handleModify(f);
       })
     );

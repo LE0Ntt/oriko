@@ -64,6 +64,10 @@ export class CaptureService {
    * A blob: URL for a pasted picture, which the receiver releases.
    */
   onPreview: ((url: string) => void) | null = null;
+  /** The note about to be written, for Describe to leave to capture. */
+  onClaim: ((path: string) => void) | null = null;
+  /** The clip is done, media and note both: Describe for new clippings takes it from here. */
+  onCaptured: ((path: string) => void) | null = null;
   /**
    * The note's path, told just before the note is written, so the card can
    * become that clipping's card when it arrives on the wall instead of the
@@ -167,7 +171,7 @@ export class CaptureService {
     }
 
     try {
-      this.onCreating?.(notePath);
+      this.creating(notePath);
       const file = await this.app.vault.create(
         notePath,
         buildPastedImageNote(title, attachment, today(), this.targetGrid())
@@ -180,7 +184,7 @@ export class CaptureService {
       return;
     }
 
-    this.onFinished?.(title, notePath);
+    this.finished(title, notePath);
   }
 
   /**
@@ -191,6 +195,16 @@ export class CaptureService {
     if (explicit !== undefined) return explicit;
     const settings = this.settings();
     return fileableGrid(settings.activeGrid, settings.homeGridName, settings.grids);
+  }
+
+  private creating(path: string): void {
+    this.onClaim?.(path);
+    this.onCreating?.(path);
+  }
+
+  private finished(label: string, path: string): void {
+    this.onFinished?.(label, path);
+    this.onCaptured?.(path);
   }
 
   private report(fraction: number | null, label: string): void {
@@ -279,7 +293,7 @@ export class CaptureService {
     // handleModify, not ingest: ingest updates the index silently, so the
     // grid was never told the clipping had landed.
     await this.index.handleModify(file);
-    this.onFinished?.(link.title.slice(0, 40), file.path);
+    this.finished(link.title.slice(0, 40), file.path);
   }
 
   private async resolve(url: string): Promise<ResolvedLink | null> {
@@ -447,7 +461,7 @@ export class CaptureService {
     );
     if (!file) return { ok: false, reason: "could not create the note" };
     await this.index.handleModify(file);
-    this.onFinished?.(link.title.slice(0, 40), file.path);
+    this.finished(link.title.slice(0, 40), file.path);
     return { ok: true };
   }
 
@@ -471,7 +485,7 @@ export class CaptureService {
 
     try {
       const grid = this.targetGrid(explicitGrid);
-      this.onCreating?.(path);
+      this.creating(path);
       return await this.app.vault.create(path, content ? content(grid) : buildNote(link, today(), grid));
     } catch (error) {
       new Notice(`Oriko: could not create the note (${String(error)})`);

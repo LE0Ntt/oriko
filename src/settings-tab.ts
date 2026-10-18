@@ -199,7 +199,7 @@ export class OrikoSettingTab extends PluginSettingTab {
               },
               {
                 name: "Describe new clippings",
-                desc: "Labels each clipping that arrives while the wall is open, a few seconds after it lands. Clippings already on your wall wait for Describe uncategorized.",
+                desc: "Describes each clipping you make as the last step of clipping it, while the wall is open. Clips from your phone are described once they sync in with their pictures. Clippings already on your wall wait for Describe uncategorized.",
                 aliases: ["automatic", "auto", "on clip"],
                 visible: () => this.describing(),
                 control: { type: "toggle", key: "describeNew" },
