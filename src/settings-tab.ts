@@ -181,20 +181,132 @@ export class OrikoSettingTab extends PluginSettingTab {
    * and the folder-change side effects live.
    */
   getSettingDefinitions(): SettingDefinitionItem[] {
+    // Desktop only, like Describe itself: on a phone the heading would stand over nothing.
+    const describe: SettingDefinitionItem[] = Platform.isDesktopApp
+      ? [
+          {
+            type: "group",
+            heading: "Describe",
+            items: [
+              {
+                name: "Describe clippings",
+                desc: "Labels clippings with Claude, from ⌘K, the selection bar or the right-click menu.",
+                aliases: ["claude", "ai", "caption", "labels"],
+                control: { type: "toggle", key: "describeEnabled" },
+              },
+              {
+                name: "Describe new clippings",
+                desc: "Labels each clipping that arrives while the wall is open, a few seconds after it lands. Clippings already on your wall wait for Describe uncategorized.",
+                aliases: ["automatic", "auto", "on clip"],
+                visible: () => this.describing(),
+                control: { type: "toggle", key: "describeNew" },
+              },
+              {
+                name: "Describe engine",
+                desc: this.offersPlus() ? "Your own Claude, or Oriko Plus." : "Runs on your own Claude.",
+                visible: () => this.describing(),
+                control: {
+                  type: "dropdown",
+                  key: "describeEngine",
+                  options: this.engineOptions(),
+                },
+              },
+              {
+                name: "Claude Code path",
+                desc: "Leave it empty to use the usual install location.",
+                visible: () => this.describing("claude-code"),
+                control: { type: "text", key: "claudePath" },
+              },
+              {
+                name: "Use my Claude login",
+                desc: "Bill your Claude plan, not the ANTHROPIC_API_KEY Obsidian started with.",
+                visible: () => this.describing("claude-code") && Boolean(hostEnv().env.ANTHROPIC_API_KEY),
+                control: { type: "toggle", key: "describePreferLogin" },
+              },
+              {
+                name: "Anthropic API key",
+                desc: "A key from the Claude Console, kept in Obsidian's keychain.",
+                visible: () => this.describing("api-key"),
+                render: (setting) => {
+                  // Pasted straight into the keychain, under Oriko's own name, so
+                  // there is nothing to name first and nothing lands in data.json.
+                  setting.addText((text) => {
+                    text.inputEl.type = "password";
+                    text
+                      .setPlaceholder("Paste your key")
+                      .setValue(this.app.secretStorage.getSecret(API_KEY_SECRET) ?? "")
+                      .onChange((value) => this.app.secretStorage.setSecret(API_KEY_SECRET, value.trim()));
+                  });
+                },
+              },
+              {
+                name: "License key",
+                desc: "From your Oriko Plus receipt, kept in Obsidian's keychain.",
+                visible: () => this.describing("oriko-plus"),
+                render: (setting) => {
+                  setting.addText((text) => {
+                    text.inputEl.type = "password";
+                    text
+                      .setPlaceholder("Paste your key")
+                      .setValue(this.app.secretStorage.getSecret(LICENSE_SECRET) ?? "")
+                      .onChange((value) => {
+                        this.app.secretStorage.setSecret(LICENSE_SECRET, value.trim());
+                        this.schedulePlusCheck();
+                      });
+                  });
+                },
+              },
+              {
+                name: "Subscription",
+                visible: () => this.describing("oriko-plus"),
+                render: (setting) => {
+                  this.plusSetting = setting;
+                  void this.paintPlusStatus(setting);
+                },
+              },
+            ],
+          },
+        ]
+      : [];
     return [
+      ...describe,
       {
-        name: "Clippings folder",
-        desc: "Every note in this folder shows up on the wall.",
-        control: { type: "folder", key: "clippingsFolder", defaultValue: "Clippings" },
-      },
-      {
-        name: "Attachment folder",
-        desc: "Where the downloaded copies of pictures and video go.",
-        control: {
-          type: "folder",
-          key: "attachmentFolder",
-          defaultValue: "Attachments/Clippings",
-        },
+        type: "group",
+        heading: "Clippings",
+        items: [
+          {
+            name: "Clippings folder",
+            desc: "Every note in this folder shows up on the wall.",
+            control: { type: "folder", key: "clippingsFolder", defaultValue: "Clippings" },
+          },
+          {
+            name: "Attachment folder",
+            desc: "Where the downloaded copies of pictures and video go.",
+            control: {
+              type: "folder",
+              key: "attachmentFolder",
+              defaultValue: "Attachments/Clippings",
+            },
+          },
+          {
+            name: "Add new clippings automatically",
+            desc: "New clippings turn up on the wall as they are saved. With this off, they wait for a relaunch or the Rescan clippings folder command.",
+            control: { type: "toggle", key: "watchClippings" },
+          },
+          {
+            name: "Shared clips go to",
+            desc: "Where a link shared from another app lands. Anything you clip on the wall goes to the grid you are on.",
+            control: {
+              type: "dropdown",
+              key: "sharedClipTarget",
+              options: {
+                "last-opened": "Last opened grid",
+                home: `${this.plugin.settings.homeGridName} (home)`,
+                ask: "Ask each time",
+              },
+            },
+          },
+        ],
       },
       {
         type: "group",
@@ -204,11 +316,6 @@ export class OrikoSettingTab extends PluginSettingTab {
             name: "Autoplay videos",
             desc: "Video tiles play while they are on screen. A wall of them uses a lot of memory, and Reduce Motion always wins.",
             control: { type: "toggle", key: "autoplayVideo" },
-          },
-          {
-            name: "Add new clippings automatically",
-            desc: "New clippings turn up on the wall as they are saved. With this off, they wait for a relaunch or the Rescan clippings folder command.",
-            control: { type: "toggle", key: "watchClippings" },
           },
         ],
       },
@@ -225,19 +332,6 @@ export class OrikoSettingTab extends PluginSettingTab {
             name: "Use community media resolvers",
             desc: "X and Instagram never hand out their video links, so getting the video means asking a community mirror (fxtwitter, kkinstagram) and sending it your link. With this off, those posts fall back to the site's own poster image.",
             control: { type: "toggle", key: "useResolvers" },
-          },
-          {
-            name: "Shared clips go to",
-            desc: "Where a link shared from another app lands. Anything you clip on the wall goes to the grid you are on.",
-            control: {
-              type: "dropdown",
-              key: "sharedClipTarget",
-              options: {
-                "last-opened": "Last opened grid",
-                home: `${this.plugin.settings.homeGridName} (home)`,
-                ask: "Ask each time",
-              },
-            },
           },
           {
             name: "Maximum file size (MB)",
@@ -258,83 +352,6 @@ export class OrikoSettingTab extends PluginSettingTab {
             name: "ffmpeg path",
             desc: "Where ffmpeg lives, which makes previews for anything Obsidian cannot play. Leave it empty to use the usual install locations.",
             control: { type: "text", key: "ffmpegPath" },
-          },
-          {
-            name: "Describe clippings",
-            desc: "Labels clippings with Claude, from the palette.",
-            aliases: ["claude", "ai", "caption", "labels"],
-            visible: () => Platform.isDesktopApp,
-            control: { type: "toggle", key: "describeEnabled" },
-          },
-          {
-            name: "Describe engine",
-            desc: this.offersPlus() ? "Your own Claude, or Oriko Plus." : "Runs on your own Claude.",
-            visible: () => this.describing(),
-            control: {
-              type: "dropdown",
-              key: "describeEngine",
-              options: this.engineOptions(),
-            },
-          },
-          {
-            name: "Claude Code path",
-            desc: "Leave it empty to use the usual install location.",
-            visible: () => this.describing("claude-code"),
-            control: { type: "text", key: "claudePath" },
-          },
-          {
-            name: "Use my Claude login",
-            desc: "Bill your Claude plan, not the ANTHROPIC_API_KEY Obsidian started with.",
-            visible: () => this.describing("claude-code") && Boolean(hostEnv().env.ANTHROPIC_API_KEY),
-            control: { type: "toggle", key: "describePreferLogin" },
-          },
-          {
-            name: "Anthropic API key",
-            desc: "A key from the Claude Console, kept in Obsidian's keychain.",
-            visible: () => this.describing("api-key"),
-            render: (setting) => {
-              // Pasted straight into the keychain, under Oriko's own name, so
-              // there is nothing to name first and nothing lands in data.json.
-              setting.addText((text) => {
-                text.inputEl.type = "password";
-                text
-                  .setPlaceholder("Paste your key")
-                  .setValue(this.app.secretStorage.getSecret(API_KEY_SECRET) ?? "")
-                  .onChange((value) => this.app.secretStorage.setSecret(API_KEY_SECRET, value.trim()));
-              });
-            },
-          },
-          {
-            name: "License key",
-            desc: "From your Oriko Plus receipt, kept in Obsidian's keychain.",
-            visible: () => this.describing("oriko-plus"),
-            render: (setting) => {
-              setting.addText((text) => {
-                text.inputEl.type = "password";
-                text
-                  .setPlaceholder("Paste your key")
-                  .setValue(this.app.secretStorage.getSecret(LICENSE_SECRET) ?? "")
-                  .onChange((value) => {
-                    this.app.secretStorage.setSecret(LICENSE_SECRET, value.trim());
-                    this.schedulePlusCheck();
-                  });
-              });
-            },
-          },
-          {
-            name: "Subscription",
-            visible: () => this.describing("oriko-plus"),
-            render: (setting) => {
-              this.plusSetting = setting;
-              void this.paintPlusStatus(setting);
-            },
-          },
-          {
-            name: "Describe new clippings",
-            desc: "Labels each clipping that arrives while the wall is open, a few seconds after it lands. Clippings already on your wall wait for Describe uncategorized.",
-            aliases: ["automatic", "auto", "on clip"],
-            visible: () => this.describing(),
-            control: { type: "toggle", key: "describeNew" },
           },
         ],
       },
