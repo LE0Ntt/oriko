@@ -5,6 +5,16 @@ All notable changes to Oriko will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.74] - 2026-10-18
+
+### Added
+- **You can now find clippings by color.** Type a color into ⌘K, like red, maroon or sky blue, and pick it to narrow the wall to the clippings that have it in their picture. Nearby shades count too, and the clippings with the most of that color come first.
+- **Colors answer to their other names, and to hex codes.** Burgundy finds maroon and gray finds grey. Paste a code like #800000 and you get a row for that exact color.
+- **The filter menu has a Color list.** Each color shows with a dot of itself and a count, the shades sit under their own heading, and Search colors at the top opens the same search as ⌘K. Keep in mind each device works out the colors from the pictures it already has, so the first time you open the wall the list takes a few seconds to fill in. Nothing is written into your notes.
+
+### Changed
+- **Describe new clippings waits for a clip to finish.** Describing is now the last step of clipping, after the picture and video are saved. Clips from your phone get described once they sync in with their pictures.
+
 ## [0.1.73] - 2026-10-18
 
 ### Added
