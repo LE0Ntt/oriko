@@ -31,7 +31,7 @@ const DARK_VALUE = 0.06;
 const LIGHT_VALUE = 0.96;
 /** Kept rather than dropped: a black background is a real part of the
     picture, it just should not take four of the eight places. */
-const STRUCTURE_PENALTY = 0.35;
+export const STRUCTURE_PENALTY = 0.35;
 
 /**
  * CIE76 distance below which two swatches read as the same colour.
@@ -98,17 +98,31 @@ function shape(r: number, g: number, b: number): { saturation: number; value: nu
   return { saturation: high === 0 ? 0 : (high - low) / high, value: high };
 }
 
-function weigh(bin: Bin, r: number, g: number, b: number): number {
+/**
+ * Whether a colour is more likely the picture's frame than its subject: a
+ * near-black or near-white with almost no colour in it.
+ */
+export function isStructural(r: number, g: number, b: number): boolean {
   const { saturation, value } = shape(r, g, b);
+  return saturation < FLAT_SATURATION && (value < DARK_VALUE || value > LIGHT_VALUE);
+}
+
+function weigh(bin: Bin, r: number, g: number, b: number): number {
+  const { saturation } = shape(r, g, b);
   const weight = bin.count * (1 + VIBRANCE * saturation);
-  const structural =
-    saturation < FLAT_SATURATION && (value < DARK_VALUE || value > LIGHT_VALUE);
-  return structural ? weight * STRUCTURE_PENALTY : weight;
+  return isStructural(r, g, b) ? weight * STRUCTURE_PENALTY : weight;
 }
 
 function hexOf(r: number, g: number, b: number): string {
   const pair = (channel: number): string => channel.toString(16).padStart(2, "0");
   return `#${pair(r)}${pair(g)}${pair(b)}`.toUpperCase();
+}
+
+/** A colour of the picture, and how much of the picture is that colour. */
+export interface Swatch {
+  hex: string;
+  /** The fraction of the picture's visible pixels closest to this colour, 0..1. */
+  share: number;
 }
 
 /**
@@ -123,12 +137,29 @@ export function extractSwatches(
   pixels: Uint8ClampedArray,
   max: number = DEFAULT_MAX
 ): string[] {
+  return extractPalette(pixels, max).map((swatch) => swatch.hex);
+}
+
+/**
+ * The same colours as extractSwatches, each with the share of the picture it
+ * stands for.
+ *
+ * The order says which colours are worth showing, and it is bent on purpose:
+ * a small vivid accent outranks a large flat grey. The share is the
+ * unbent figure, so a search can tell a picture that is mostly maroon from
+ * one with a maroon scarf in it. Every visible pixel counts toward the
+ * swatch nearest to it, including the shades that were folded away as too
+ * close to keep, so the shares add up to the whole picture.
+ */
+export function extractPalette(pixels: Uint8ClampedArray, max: number = DEFAULT_MAX): Swatch[] {
   if (max < 1) return [];
 
   const bins = new Map<number, Bin>();
+  let total = 0;
 
   for (let at = 0; at + 3 < pixels.length; at += 4) {
     if (pixels[at + 3] < ALPHA_FLOOR) continue;
+    total++;
 
     const r = pixels[at];
     const g = pixels[at + 1];
@@ -156,20 +187,37 @@ export function extractSwatches(
       const r = Math.round(bin.r / bin.count);
       const g = Math.round(bin.g / bin.count);
       const b = Math.round(bin.b / bin.count);
-      return { key, weight: weigh(bin, r, g, b), lab: toLab(r, g, b), hex: hexOf(r, g, b) };
+      return {
+        key,
+        count: bin.count,
+        weight: weigh(bin, r, g, b),
+        lab: toLab(r, g, b),
+        hex: hexOf(r, g, b),
+      };
     })
     // Key breaks ties, so the same image always yields the same row.
     .sort((one, two) => two.weight - one.weight || one.key - two.key);
 
-  const chosen: string[] = [];
-  const taken: Lab[] = [];
+  const chosen: Array<{ hex: string; lab: Lab; count: number }> = [];
 
   for (const candidate of candidates) {
     if (chosen.length >= max) break;
-    if (taken.some((lab) => distance(lab, candidate.lab) < MIN_DISTANCE)) continue;
-    chosen.push(candidate.hex);
-    taken.push(candidate.lab);
+    if (chosen.some((swatch) => distance(swatch.lab, candidate.lab) < MIN_DISTANCE)) continue;
+    chosen.push({ hex: candidate.hex, lab: candidate.lab, count: 0 });
   }
 
-  return chosen;
+  for (const candidate of candidates) {
+    let nearest = chosen[0];
+    let best = Infinity;
+    for (const swatch of chosen) {
+      const d = distance(swatch.lab, candidate.lab);
+      if (d < best) {
+        best = d;
+        nearest = swatch;
+      }
+    }
+    if (nearest) nearest.count += candidate.count;
+  }
+
+  return chosen.map((swatch) => ({ hex: swatch.hex, share: swatch.count / total }));
 }

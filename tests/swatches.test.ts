@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractSwatches } from "../src/core/swatches";
+import { extractPalette, extractSwatches } from "../src/core/swatches";
 
 type Rgba = [number, number, number, number];
 
@@ -121,5 +121,58 @@ describe("extractSwatches", () => {
       count: 100 - i,
     }));
     expect(extractSwatches(pixels(...runs)).length).toBeLessThanOrEqual(8);
+  });
+});
+
+describe("extractPalette", () => {
+  it("gives a solid colour the whole picture", () => {
+    expect(extractPalette(pixels({ color: opaque(255, 0, 0), count: 100 }))).toEqual([
+      { hex: "#FF0000", share: 1 },
+    ]);
+  });
+
+  it("splits the picture between its colours by how much each covers", () => {
+    const palette = extractPalette(
+      pixels(
+        { color: opaque(128, 0, 0), count: 300 },
+        { color: opaque(0, 0, 255), count: 100 }
+      )
+    );
+    expect(palette).toEqual([
+      { hex: "#800000", share: 0.75 },
+      { hex: "#0000FF", share: 0.25 },
+    ]);
+  });
+
+  it("counts a shade too close to keep toward the swatch it was folded into", () => {
+    const palette = extractPalette(
+      pixels(
+        { color: opaque(100, 100, 100), count: 200 },
+        { color: opaque(118, 118, 118), count: 100 },
+        { color: opaque(255, 0, 0), count: 100 }
+      )
+    );
+    expect(palette.find((swatch) => swatch.hex === "#646464")?.share).toBe(0.75);
+  });
+
+  it("leaves transparent pixels out of the picture", () => {
+    expect(
+      extractPalette(
+        pixels(
+          { color: [0, 0, 255, 0], count: 500 },
+          { color: opaque(255, 0, 0), count: 40 }
+        )
+      )
+    ).toEqual([{ hex: "#FF0000", share: 1 }]);
+  });
+
+  it("lists the same colours, in the same order, as the detail view's row", () => {
+    const buffer = pixels(
+      { color: opaque(128, 128, 128), count: 300 },
+      { color: opaque(255, 0, 0), count: 100 },
+      { color: opaque(5, 5, 5), count: 200 },
+      { color: opaque(0, 120, 60), count: 50 }
+    );
+    expect(extractPalette(buffer).map((swatch) => swatch.hex)).toEqual(extractSwatches(buffer));
   });
 });
