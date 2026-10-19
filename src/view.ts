@@ -1775,11 +1775,14 @@ export class OrikoView extends ItemView {
             submenu.push(row(value, this.countColor(value, defs)));
           }
 
-          submenu.push({
-            icon: "",
+          // First rather than last, where the date facet keeps Custom: a wall
+          // can carry thirty-odd colours, and the end of that list is below
+          // the fold.
+          if (submenu.length > 0) submenu[0] = { ...submenu[0], divider: true };
+          submenu.unshift({
+            icon: "search",
             label: "Search colors…",
             alwaysShow: true,
-            divider: true,
             onSelect: () => this.palette?.openStage(`filter:${def.id}`),
           });
         }

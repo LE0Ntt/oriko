@@ -70,6 +70,8 @@ Folders are piles inside a grid. Select some tiles and choose **Move to folder**
 
 Any frontmatter property can become a filter. Enable properties under **Settings → Filter properties**, then slice the wall from the filter button: categories, status, domain, dates, whatever your clippings carry.
 
+**Color** is always there too. Pick a color from the filter button's Color list, or type one into ⌘K: an everyday word like red or blue, a shade like maroon or sky blue, another name for one (burgundy finds maroon), or a hex code like `#800000`. Nearby shades count, and the clippings with the most of that color come first. **Search colors…** at the top of that list opens the same search from the filter button. Each device works out the colors from the pictures it already has, in the background, so nothing is written into your notes.
+
 ## Describe
 
 A pasted screenshot or a reel with no caption is hard to find again. **Describe** looks at the picture, or a few frames of a video, along with the note's text, and writes categories, a one-line `caption` and any text in the picture (`media_text`) into the frontmatter, so the palette finds the clip by what is in it. Turn it on under **Settings → Oriko → Describe clippings** on desktop, then run **Describe uncategorized** from ⌘K, or select tiles and choose **Describe** from the palette, the selection bar or the right-click menu. Turn on **Describe new clippings** too and describing becomes the last step of clipping, while the wall is open; clips from your phone get described once they sync in with their pictures. Categories it suggests that are not on your wall yet wait in **Review suggestions** until you approve them.
