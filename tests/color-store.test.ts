@@ -53,4 +53,11 @@ describe("ColorStore", () => {
     expect(store.get("kept.jpg")).toEqual(maroon);
     expect(store.prune(new Set(["kept.jpg"]))).toBe(false);
   });
+
+  it("lists the pictures it holds", () => {
+    const store = new ColorStore();
+    store.set("a.jpg", 1, maroon);
+    store.set("b.jpg", 1, []);
+    expect(store.paths()).toEqual(["a.jpg", "b.jpg"]);
+  });
 });

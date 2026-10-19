@@ -447,3 +447,14 @@ export function previewOf(tile: TileModel): Preview | null {
   if (tile.kind === "video") return null;
   return tile.filePath ? { path: tile.filePath, remote: tile.remote } : null;
 }
+
+/**
+ * The picture a tile's colours are read from: the same still its palette
+ * row shows, and only once it is on this device. A picture still on the
+ * origin server carries no CORS headers, so reading its pixels would taint
+ * the canvas; it is read once it has been archived.
+ */
+export function colorSource(tile: TileModel): string | null {
+  const preview = previewOf(tile);
+  return preview && !preview.remote ? preview.path : null;
+}

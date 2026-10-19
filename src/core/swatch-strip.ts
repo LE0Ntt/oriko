@@ -1,6 +1,7 @@
 import { scaledSize } from "./derive";
 import { offsetToward } from "./layout";
-import { extractSwatches } from "./swatches";
+import { extractPalette } from "./swatches";
+import type { Swatch } from "./swatches";
 
 /**
  * The detail view's colour palette: reads the picture already on the stage
@@ -12,7 +13,46 @@ import { extractSwatches } from "./swatches";
 
 /** Wide enough that a small accent survives the downscale, small enough that
     the whole read is a fraction of a frame. */
-const SAMPLE_WIDTH = 96;
+export const SAMPLE_WIDTH = 96;
+
+/** One canvas for every read, so a pass over a whole wall does not make hundreds. */
+let sampler: HTMLCanvasElement | null = null;
+
+/**
+ * The palette of anything a canvas can draw, read at SAMPLE_WIDTH so the
+ * detail view's row and the colour search agree about every picture. An
+ * empty array when the pixels cannot be read: a cross-origin picture taints
+ * the canvas.
+ */
+export function paletteOfImage(
+  source: CanvasImageSource,
+  width: number,
+  height: number
+): Swatch[] {
+  if (width === 0 || height === 0) return [];
+  const size = scaledSize(width, height, SAMPLE_WIDTH);
+  sampler ??= createEl("canvas");
+  sampler.width = Math.max(1, size.width);
+  sampler.height = Math.max(1, size.height);
+  // Read back on every call, which is what this hint is for: without it the
+  // canvas lives on the GPU and each read stalls copying it back.
+  const context = sampler.getContext("2d", { willReadFrequently: true });
+  if (!context) return [];
+
+  try {
+    context.clearRect(0, 0, sampler.width, sampler.height);
+    context.drawImage(source, 0, 0, sampler.width, sampler.height);
+    return extractPalette(context.getImageData(0, 0, sampler.width, sampler.height).data);
+  } catch {
+    return [];
+  }
+}
+
+/** A round dot of a colour, in an icon's place, for a row that is a colour. */
+export function paintColorDot(host: HTMLElement, color: string): void {
+  const dot = host.createSpan({ cls: "pg-color-dot" });
+  dot.style.setProperty("--pg-dot", color);
+}
 
 function prefersReducedMotion(): boolean {
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -50,26 +90,11 @@ export async function readSwatches(image: HTMLImageElement): Promise<string[]> {
       return [];
     }
   }
-  if (image.naturalWidth === 0 || image.naturalHeight === 0) return [];
-
-  const size = scaledSize(image.naturalWidth, image.naturalHeight, SAMPLE_WIDTH);
-  const canvas = createEl("canvas");
-  canvas.width = Math.max(1, size.width);
-  canvas.height = Math.max(1, size.height);
-  const context = canvas.getContext("2d");
-  if (!context) return [];
-
-  try {
-    context.drawImage(image, 0, 0, canvas.width, canvas.height);
-    const { data } = context.getImageData(0, 0, canvas.width, canvas.height);
-    return extractSwatches(data);
-  } catch {
-    // A tainted canvas: this tile is still showing the origin server's copy,
-    // which carries no CORS headers. Nothing to show, and nothing to fix
-    // here either, since background archiving replaces that URL with a local
-    // file and the next open reads it fine.
-    return [];
-  }
+  // An empty palette for a tainted canvas: this tile is still showing the
+  // origin server's copy, which carries no CORS headers. Nothing to show, and
+  // nothing to fix here either, since background archiving replaces that URL
+  // with a local file and the next open reads it fine.
+  return paletteOfImage(image, image.naturalWidth, image.naturalHeight).map((swatch) => swatch.hex);
 }
 
 /**

@@ -1,4 +1,5 @@
 import type { Depth } from "./claude-engine";
+import { colorAliases, colorDot, hexQuery } from "./colors";
 import type { EngineBlocker } from "./engines";
 import { isEmptyValue, valueLabel } from "./filter";
 import type { FacetDef, FacetValue, FilterState } from "./filter";
@@ -27,8 +28,10 @@ export interface PaletteStage {
   /**
    * Rebuilt on each render rather than captured, so a keepOpen row shows the
    * state its own last click produced instead of the state it opened in.
+   * Given what has been typed, for a stage that can offer the query itself
+   * as a row (a hex code in the colour stage).
    */
-  items: () => PaletteCommand[];
+  items: (query?: string) => PaletteCommand[];
   /**
    * The clippings this stage acts on, shown above its rows so the choice is
    * made looking at them. Display only: nothing in it can be picked.
@@ -61,6 +64,8 @@ export interface PaletteCommand {
   detailIcon?: string;
   /** Draws a rule above this row, for grouping without a heading. Mirrors MenuItem.divider. */
   divider?: boolean;
+  /** A CSS colour drawn as a dot where the icon goes, for a row that is a colour. */
+  swatch?: string;
   /** Extra words to match on that the row never displays. */
   keywords?: string;
   /**
@@ -165,6 +170,11 @@ export interface PaletteContext {
   facetDefs: FacetDef[];
   facets: Record<string, FacetValue[]>;
   filter: FilterState;
+  /**
+   * How many clippings a hex code finds, for its row's count. A hex code is
+   * not a value the wall's tally holds, so it has to be asked about.
+   */
+  countColor?: (value: string) => number;
   /** False off desktop, where there is no Finder and no Downloads folder. */
   hasSystem: boolean;
   /**
@@ -458,8 +468,10 @@ function filterCommands(context: PaletteContext): PaletteCommand[] {
       stage: {
         title: label,
         placeholder: `${label}…`,
-        items: () =>
-          (context.facets[def.id] ?? []).map((entry) => ({
+        items: (query = "") =>
+          def.source === "color"
+            ? colorStageItems(context, def, query)
+            : (context.facets[def.id] ?? []).map((entry) => ({
             id: `filter:${def.id}:${entry.value}`,
             // Read as words where the value is a marker: the empty row's
             // value is the blank string, which drew a row with no text.
@@ -508,7 +520,7 @@ function filterCommands(context: PaletteContext): PaletteCommand[] {
  * values, and a few hundred rows is not an opening screen. searchPalette
  * holds them back until there is a query worth answering.
  */
-export function facetValueCommands(context: PaletteContext): PaletteCommand[] {
+export function facetValueCommands(context: PaletteContext, query = ""): PaletteCommand[] {
   const { actions } = context;
   const items: PaletteCommand[] = [];
 
@@ -519,11 +531,15 @@ export function facetValueCommands(context: PaletteContext): PaletteCommand[] {
       // the words they are read as: "empty" is shown as "Is empty", and that
       // is what the highlight ranges have to index into.
       const shown = valueLabel(def, entry.value);
+      const color = def.source === "color";
       items.push({
         id: `filter:${def.id}:${entry.value}`,
         label: `${def.label}: ${shown}`,
         matchOn: shown,
         icon: def.icon,
+        swatch: color ? colorDot(entry.value) : undefined,
+        // Burgundy finds maroon, gray finds grey.
+        keywords: color ? colorAliases(entry.value).join(" ") : undefined,
         section: "Filters",
         detail: String(entry.count),
         detailIcon: (context.filter[def.id] ?? []).includes(entry.value) ? "check" : undefined,
@@ -531,8 +547,74 @@ export function facetValueCommands(context: PaletteContext): PaletteCommand[] {
         run: () => actions.toggleFacet(def.id, entry.value),
       });
     }
+
+    if (def.source === "color") {
+      const row = hexRow(context, def, query, `${def.label}: `);
+      if (row) items.push(row);
+    }
   }
 
+  return items;
+}
+
+/**
+ * A typed hex code as a colour to filter by. Only ever offered for the code
+ * typed, never listed in advance: there are sixteen million of them, and
+ * the one worth a row is the one you have just pasted.
+ */
+function hexRow(
+  context: PaletteContext,
+  def: FacetDef,
+  query: string,
+  prefix: string
+): PaletteCommand | null {
+  const hex = hexQuery(query);
+  if (!hex) return null;
+  const count = context.countColor?.(hex);
+  return {
+    id: `filter:${def.id}:${hex}`,
+    label: `${prefix}${hex}`,
+    matchOn: hex,
+    icon: prefix ? def.icon : "",
+    swatch: hex,
+    section: "Filters",
+    detail: count === undefined ? undefined : String(count),
+    detailIcon: (context.filter[def.id] ?? []).includes(hex) ? "check" : undefined,
+    keepOpen: true,
+    run: () => context.actions.toggleFacet(def.id, hex),
+  };
+}
+
+/**
+ * The colour stage: the wall's colours, each with its dot, then any hex
+ * code already chosen (no tally holds one, so without this there would be
+ * no row to switch it off with), then the hex code being typed.
+ */
+function colorStageItems(context: PaletteContext, def: FacetDef, query: string): PaletteCommand[] {
+  const chosen = context.filter[def.id] ?? [];
+  const entries = context.facets[def.id] ?? [];
+  const row = (value: string, detail: string | undefined): PaletteCommand => ({
+    id: `filter:${def.id}:${value}`,
+    label: value,
+    icon: "",
+    swatch: colorDot(value),
+    keywords: colorAliases(value).join(" "),
+    section: "Filters",
+    detail,
+    detailIcon: chosen.includes(value) ? "check" : undefined,
+    keepOpen: true,
+    run: () => context.actions.toggleFacet(def.id, value),
+  });
+
+  const items = entries.map((entry) => row(entry.value, String(entry.count)));
+  for (const value of chosen) {
+    if (entries.some((entry) => entry.value === value)) continue;
+    const count = context.countColor?.(value);
+    items.push(row(value, count === undefined ? undefined : String(count)));
+  }
+
+  const typed = hexRow(context, def, query, "");
+  if (typed && !items.some((item) => item.id === typed.id)) items.push(typed);
   return items;
 }
 

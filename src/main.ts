@@ -14,6 +14,7 @@ import { buildDiagnostics } from "./core/diagnose";
 import { setToolOverrides } from "./convert";
 import { ArchiveService } from "./archive-service";
 import { SteamService } from "./steam-service";
+import { ColorService } from "./color-service";
 import { PostService } from "./post-service";
 import { CaptureService } from "./capture";
 import { ClippingIndex } from "./index-store";
@@ -55,6 +56,8 @@ export default class OrikoPlugin extends Plugin {
   archiver!: ArchiveService;
   steam!: SteamService;
   posts!: PostService;
+  /** Each picture's palette on this device, for the Color filter. */
+  colors!: ColorService;
   capture!: CaptureService;
   describer!: DescribeService;
   /** Describes clippings that land while the wall is open, when the setting asks for it. */
@@ -137,6 +140,12 @@ export default class OrikoPlugin extends Plugin {
       () => this.index.records()
     );
     await this.posts.load();
+    this.colors = new ColorService(
+      this.app,
+      this.manifest.dir ?? `${this.app.vault.configDir}/plugins/oriko`
+    );
+    await this.colors.load();
+    this.register(() => this.colors.stop());
     this.plus = new PlusAccount({
       license: () => this.plusLicense(),
       install: () => this.plusInstall(),

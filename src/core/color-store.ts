@@ -55,6 +55,11 @@ export class ColorStore {
     this.entries.set(path, { mtime, palette });
   }
 
+  /** Every picture it holds a reading for. */
+  paths(): string[] {
+    return [...this.entries.keys()];
+  }
+
   /** Drops every picture not in `keep`. True when anything went. */
   prune(keep: ReadonlySet<string>): boolean {
     let dropped = false;

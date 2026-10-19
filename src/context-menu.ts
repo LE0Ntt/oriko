@@ -2,10 +2,13 @@ import { scrollRowIntoList } from "./scroll";
 import { Platform, setIcon } from "obsidian";
 import { bottomInset } from "./core/insets";
 import { cursorAfterNarrowing, placeMenu, stepCursor } from "./core/layout";
+import { paintColorDot } from "./core/swatch-strip";
 
 export interface MenuItem {
   icon: string;
   label: string;
+  /** A CSS colour drawn as a dot where the icon goes, for a row that is a colour. */
+  swatch?: string;
   /** Right-hand text: a shortcut hint or a count. */
   detail?: string;
   /**
@@ -292,7 +295,8 @@ export class ContextMenu {
       // Blank is meaningful in a panel that has icons: an unticked row still
       // needs the gutter, or the labels jump sideways as things are selected.
       // A panel where no row has one drops it instead, see below.
-      if (item.icon) setIcon(icon, item.icon);
+      if (item.swatch) paintColorDot(icon, item.swatch);
+      else if (item.icon) setIcon(icon, item.icon);
       row.createDiv({
         cls: "pg-menu-label",
         text: item.labelFor?.(this.query) ?? item.label,
@@ -351,7 +355,7 @@ export class ContextMenu {
     // sit there empty down the whole list. Computed once from the items rather
     // than per row: it is a property of the panel, and patching swaps counts
     // and marks but never introduces a left icon where there was none.
-    panel.toggleClass("is-iconless", !items.some((item) => item.icon));
+    panel.toggleClass("is-iconless", !items.some((item) => item.icon || item.swatch));
 
     return records;
   }

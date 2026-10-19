@@ -2616,6 +2616,18 @@
   display: none;
 }
 
+/* A colour row's dot, in the icon's place in both the menus and the palette.
+   The colour comes in as --pg-dot on the dot itself, so painting a list of
+   them restyles nothing else. The inset ring is the detail view's swatch
+   edge: black needs one on a dark surface, white on a light one. */
+.pg-color-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--pg-dot, transparent);
+  box-shadow: inset 0 0 0 1px var(--pg-rule);
+}
+
 .pg-palette-arrow {
   display: flex;
   align-items: center;

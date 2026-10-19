@@ -470,6 +470,71 @@ describe("facetValueCommands", () => {
   });
 });
 
+describe("colour rows", () => {
+  const colored = (over: Partial<PaletteContext> = {}): PaletteContext =>
+    context({
+      facetDefs: facetDefs([]),
+      facets: {
+        color: [
+          { value: "red", count: 5 },
+          { value: "maroon", count: 3 },
+        ],
+        kind: [],
+        domain: [],
+      },
+      countColor: (value) => (value === "#800000" ? 4 : 0),
+      ...over,
+    });
+  const options = { limit: 0, activeGrid: "Clippings", homeGrid: "Clippings", registered: new Set<string>() };
+  const stage = (ctx: PaletteContext) => buildCommands(ctx).find((c) => c.id === "filter:color")?.stage;
+
+  it("paints each colour value with a dot of its colour", () => {
+    const row = facetValueCommands(colored()).find((c) => c.label === "Color: maroon");
+    expect(row?.swatch).toBe("#800000");
+  });
+
+  it("finds a colour by its other names", () => {
+    const groups = searchPalette("burgundy", [], facetValueCommands(colored()), [], options);
+    expect(groups.flatMap((g) => g.rows).map((r) => r.label)).toContain("Color: maroon");
+  });
+
+  it("carries the dot through to the palette's row", () => {
+    const groups = searchPalette("maroon", [], facetValueCommands(colored()), [], options);
+    expect(groups[0].rows[0].swatch).toBe("#800000");
+  });
+
+  it("offers a typed hex code as a colour to filter by", () => {
+    let toggled: [string, string] | null = null;
+    const ctx = colored({
+      actions: { ...actions, toggleFacet: (id: string, value: string) => (toggled = [id, value]) },
+    });
+    const row = facetValueCommands(ctx, "800000").find((c) => c.label === "Color: #800000");
+    expect(row).toMatchObject({ swatch: "#800000", detail: "4" });
+    row?.run?.();
+    expect(toggled).toEqual(["color", "#800000"]);
+  });
+
+  it("finds the hex row when the code is typed without its #", () => {
+    const groups = searchPalette("800000", [], facetValueCommands(colored(), "800000"), [], options);
+    expect(groups.flatMap((g) => g.rows).map((r) => r.label)).toContain("Color: #800000");
+  });
+
+  it("offers no hex row for a query that is not a hex code", () => {
+    expect(facetValueCommands(colored(), "maroon").some((c) => c.label.includes("#"))).toBe(false);
+  });
+
+  it("paints the stage's rows with dots, and offers a typed hex code there too", () => {
+    const items = stage(colored())?.items("#800000") ?? [];
+    expect(items.find((c) => c.label === "maroon")?.swatch).toBe("#800000");
+    expect(items.some((c) => c.label === "#800000")).toBe(true);
+  });
+
+  it("keeps a chosen hex code in the stage, so it can be switched off", () => {
+    const items = stage(colored({ filter: { color: ["#123456"] } }))?.items("") ?? [];
+    expect(items.find((c) => c.label === "#123456")?.detailIcon).toBe("check");
+  });
+});
+
 const paths = (n: number): string[] => Array.from({ length: n }, (_, i) => `c${i}.md`);
 
 const describing = (over: Partial<DescribeContext> = {}): DescribeContext => ({

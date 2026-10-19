@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { PostLook, PostSite } from "../src/core/posts";
 import { MediaCache } from "../src/core/cache";
 import { scanClipping } from "../src/core/scan";
-import { BUILDING_PREFIX, STEAM_PENDING, buildTiles, buildingTile } from "../src/core/tile";
+import { BUILDING_PREFIX, STEAM_PENDING, buildTiles, buildingTile, colorSource } from "../src/core/tile";
 import { COMBOLANDS_BODY, COMBOLANDS_FM, NOOK_BODY, NOOK_FM } from "./fixtures/clippings";
 
 const COMBO_7 =
@@ -623,5 +623,28 @@ describe("site card modes", () => {
       steamMode: "hover",
     });
     expect(tile.building).toMatchObject({ shape: "steam", band: false });
+  });
+});
+
+describe("colorSource", () => {
+  const base = buildingTile("x", { label: "", progress: 0, shape: "plain" });
+  const tileOf = (over: Partial<typeof base>) => ({ ...base, ...over });
+
+  it("reads a picture's colours from the picture itself", () => {
+    expect(colorSource(tileOf({ kind: "image", filePath: "a.jpg", remote: false }))).toBe("a.jpg");
+  });
+
+  it("reads a video's colours from its poster", () => {
+    expect(colorSource(tileOf({ kind: "video", filePath: "v.mp4", posterPath: "v.poster.webp" }))).toBe(
+      "v.poster.webp"
+    );
+  });
+
+  it("waits for a picture still on the origin server, which would taint the canvas", () => {
+    expect(colorSource(tileOf({ kind: "image", filePath: "https://x/a.jpg", remote: true }))).toBeNull();
+  });
+
+  it("has nothing to read for a video with no poster yet", () => {
+    expect(colorSource(tileOf({ kind: "video", filePath: "v.mp4", posterPath: "" }))).toBeNull();
   });
 });

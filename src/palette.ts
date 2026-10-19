@@ -8,6 +8,7 @@ import { keepCursor, panelLayout, resumeIndex, searchPalette, stageChip } from "
 import type { PaletteRow, SearchOptions } from "./core/palette-results";
 import type { MatchRange } from "./core/palette-search";
 import type { ClippingRecord } from "./core/scan";
+import { paintColorDot } from "./core/swatch-strip";
 
 const ROOT_PLACEHOLDER = "Search clippings and actions…";
 
@@ -21,7 +22,7 @@ export interface PaletteHandlers {
    * `commands` is the root list. `values` is every value the wall's facets
    * carry, which searchPalette holds back until there is a query.
    */
-  pools: () => { commands: PaletteCommand[]; values: PaletteCommand[] };
+  pools: (query: string) => { commands: PaletteCommand[]; values: PaletteCommand[] };
   clippings: () => readonly ClippingRecord[];
   options: () => SearchOptions;
   /** Land on a clipping: switch grid if need be, centre it, select it. */
@@ -92,6 +93,8 @@ export class Palette {
    * having very possibly changed a count or a tick while it was open.
    */
   private resume: { query: string; key: string; index: number } | null = null;
+  /** The stage was opened straight from outside, so backing out of it closes. */
+  private direct = false;
 
   constructor(private container: HTMLElement, private handlers: PaletteHandlers) {}
 
@@ -102,6 +105,21 @@ export class Palette {
   toggle(): void {
     if (this.isOpen) this.close();
     else this.open();
+  }
+
+  /**
+   * Opens straight into one command's stage, for a surface elsewhere (the
+   * filter menu's Search colors row) that wants this search without the
+   * root list in front of it. Backing out closes the palette, since there is
+   * no root list here to go back to.
+   */
+  openStage(id: string): void {
+    if (!this.isOpen) this.open();
+    const command = this.handlers.pools("").commands.find((candidate) => candidate.id === id);
+    if (!command?.stage) return;
+    this.pushStage(command);
+    this.resume = null;
+    this.direct = true;
   }
 
   open(): void {
@@ -183,6 +201,7 @@ export class Palette {
     this.subjectIndex = 0;
     this.stageId = null;
     this.stage = null;
+    this.direct = false;
     this.rows = [];
     this.rowEls = [];
   }
@@ -300,6 +319,10 @@ export class Palette {
   }
 
   private popStage(): void {
+    if (this.direct) {
+      this.close();
+      return;
+    }
     const resume = this.resume;
     this.resume = null;
 
@@ -375,7 +398,7 @@ export class Palette {
 
     const query = this.input?.value ?? "";
     const options = this.handlers.options();
-    const { commands, values } = this.handlers.pools();
+    const { commands, values } = this.handlers.pools(query);
     this.stage = this.stageId
       ? (commands.find((command) => command.id === this.stageId)?.stage ?? null)
       : null;
@@ -386,7 +409,7 @@ export class Palette {
     const groups = this.stage
       ? // An argument list is a closed set: the wall's clippings are not
         // answers to "which grid", and offering them would be noise.
-        searchPalette(query, this.stage.items(), [], [], { ...options, limit: 0 })
+        searchPalette(query, this.stage.items(query), [], [], { ...options, limit: 0 })
       : searchPalette(query, commands, values, this.handlers.clippings(), options);
 
     this.paintStageChrome();
@@ -400,7 +423,7 @@ export class Palette {
     // sit there empty down the whole list. Decided for the list rather than
     // per row: it is a property of what is being shown.
     const iconic = groups.some((group) =>
-      group.rows.some((row) => row.icon || row.clipping)
+      group.rows.some((row) => row.icon || row.swatch || row.clipping)
     );
     list.toggleClass("is-iconless", !iconic);
 
@@ -510,6 +533,8 @@ export class Palette {
       image.loading = "lazy";
       image.decoding = "async";
       image.src = thumb;
+    } else if (row.swatch) {
+      paintColorDot(icon, row.swatch);
     } else if (row.icon) {
       // Blank is meaningful in a list that has icons: an unticked row still
       // needs its gutter, or the labels jump sideways as values are toggled.

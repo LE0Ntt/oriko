@@ -57,6 +57,7 @@ import {
   matchesFilter,
   propertyVocabulary,
   pruneFilter,
+  rankByColor,
   toggleFacet,
   typedFacets,
   valueLabel,
@@ -79,7 +80,8 @@ import {
   orderedGrids,
 } from "./core/spaces";
 import type { GridSpace, PlacedGrid } from "./core/spaces";
-import { BUILDING_PREFIX, buildTiles, buildingTile, previewOf } from "./core/tile";
+import { BUILDING_PREFIX, buildTiles, buildingTile, colorSource, previewOf } from "./core/tile";
+import { colorDot, isBroadColor, isHexColor } from "./core/colors";
 import { advance } from "./core/building";
 import type { TileLooks, TileModel } from "./core/tile";
 import type { PostSite } from "./core/posts";
@@ -381,11 +383,11 @@ export class OrikoView extends ItemView {
     this.registerDomEvent(this.contentEl, "touchstart", () => {}, { passive: true });
 
     this.palette = new Palette(this.contentEl, {
-      pools: () => {
+      pools: (query) => {
         // One context for both, for the reason paletteContext builds its defs
         // once: reading the wall is the expensive half of a keystroke.
         const context = this.paletteContext();
-        return { commands: buildCommands(context), values: facetValueCommands(context) };
+        return { commands: buildCommands(context), values: facetValueCommands(context, query) };
       },
       // Every clipping in the vault, not just this wall's: the whole point
       // of searching is to find the one you cannot remember filing.
@@ -538,6 +540,12 @@ export class OrikoView extends ItemView {
     this.plugin.archiver.onChange(() => this.refresh());
     this.plugin.steam.onChange(() => this.refresh());
     this.plugin.posts.onChange(() => this.refresh());
+    // New palettes change nothing on a wall no colour is chosen on: the
+    // counts are read when the menu opens. Only a colour filter or a colour
+    // smart grid has anything to re-rank.
+    this.plugin.colors.onChange(() => {
+      if (this.colorChosen()) this.refresh();
+    });
 
     // The stage is a fixed frame: the wall pans inside it, and nothing else
     // may move it. Overflow: hidden stops a user scrolling it but not the
@@ -1408,6 +1416,7 @@ export class OrikoView extends ItemView {
       this.unloadable,
       this.looks()
     );
+    this.plugin.colors.want(this.colorSources(tiles));
 
     // Facets are counted from the whole grid, not from what survives the
     // filter: counting the result would make options disappear the moment
@@ -1604,8 +1613,15 @@ export class OrikoView extends ItemView {
     const filter = this.activeFilter();
     this.spaceBar?.setFilterCount(activeCount(filter));
     const defs = this.defs();
+    // A colour is held by degree, so a wall narrowed by one also leads with
+    // the clippings that have the most of it. See rankByColor.
+    const filters = [filter, this.activeGrid().rules ?? {}];
     const narrow = (tiles: TileModel[]): TileModel[] =>
-      isFilterEmpty(filter) ? tiles : tiles.filter((tile) => matchesFilter(tile, filter, defs));
+      rankByColor(
+        isFilterEmpty(filter) ? tiles : tiles.filter((tile) => matchesFilter(tile, filter, defs)),
+        filters,
+        defs
+      );
     const shown = this.withBuilds(narrow(this.facets));
     // A folder stays on a narrowed wall only while something in it matches,
     // and its collage shows the matches. An empty folder shows on a wall that
@@ -1633,7 +1649,37 @@ export class OrikoView extends ItemView {
    * buckets against today when you next touch the filter.
    */
   private defs(): FacetDef[] {
-    return typedFacets(facetDefs(this.look().filterProperties), this.facets, Date.now());
+    return typedFacets(
+      facetDefs(this.look().filterProperties, this.paletteOf),
+      this.facets,
+      Date.now()
+    );
+  }
+
+  /** A tile's palette as this device has read it, for the Color facet. */
+  private paletteOf = (tile: TileModel) => {
+    const path = colorSource(tile);
+    return path ? this.plugin.colors.get(path) : undefined;
+  };
+
+  /** The pictures whose colours the Color facet needs, for the colour reader to fetch. */
+  private colorSources(tiles: TileModel[]): string[] {
+    const paths: string[] = [];
+    for (const tile of tiles) {
+      const path = colorSource(tile);
+      if (path) paths.push(path);
+    }
+    return paths;
+  }
+
+  /** Whether a colour is chosen in the filter or the smart grid's rules, which new palettes can re-rank. */
+  private colorChosen(): boolean {
+    return (this.filter.color?.length ?? 0) > 0 || (this.activeGrid().rules?.color?.length ?? 0) > 0;
+  }
+
+  /** How many tiles on this wall a colour finds, for a hex code no tally holds. */
+  private countColor(value: string, defs: FacetDef[]): number {
+    return this.facets.filter((tile) => matchesFilter(tile, { color: [value] }, defs)).length;
   }
 
   /**
@@ -1647,7 +1693,11 @@ export class OrikoView extends ItemView {
    * buckets stop matching, and the grid is subtly wrong instead of broken.
    */
   private allDefs(tiles: TileModel[]): FacetDef[] {
-    return typedFacets(facetDefs(this.plugin.settings.filterProperties), tiles, Date.now());
+    return typedFacets(
+      facetDefs(this.plugin.settings.filterProperties, this.paletteOf),
+      tiles,
+      Date.now()
+    );
   }
 
   /** The session state the wall painted with, for the diagnostics command. */
@@ -1690,11 +1740,14 @@ export class OrikoView extends ItemView {
         const values = available[def.id] ?? [];
         const chosen = filter[def.id] ?? [];
 
+        const color = def.source === "color";
         const row = (value: string, count: number): MenuItem => ({
           // No left icon at all, so the panel drops the gutter. A chosen value
           // marks itself where its count was: the count of a value you have
           // already picked is not what you are looking at the row for.
           icon: "",
+          // A colour is easier recognised than read.
+          swatch: color ? colorDot(value) : undefined,
           // A date facet's values are groups and comparisons rather than words
           // a clipping carries, so they are read back as words here. Any other
           // facet's value is already the word.
@@ -1708,6 +1761,28 @@ export class OrikoView extends ItemView {
         });
 
         const submenu = values.map((entry) => row(entry.value, entry.count));
+
+        if (color) {
+          // Families first, then the shades inside them, under a caption so
+          // the long list reads as two short ones.
+          const firstShade = submenu.findIndex((item) => !isBroadColor(item.label));
+          if (firstShade > 0) submenu[firstShade] = { ...submenu[firstShade], heading: "Shades" };
+
+          // A hex code is not a value any tally reports, so a chosen one would
+          // have no row to switch it off with.
+          for (const value of chosen) {
+            if (!isHexColor(value) || values.some((entry) => entry.value === value)) continue;
+            submenu.push(row(value, this.countColor(value, defs)));
+          }
+
+          submenu.push({
+            icon: "",
+            label: "Search colors…",
+            alwaysShow: true,
+            divider: true,
+            onSelect: () => this.palette?.openStage(`filter:${def.id}`),
+          });
+        }
 
         if (def.shape === "date") {
           // A comparison is not a value any clipping reports, so it never
@@ -1811,6 +1886,7 @@ export class OrikoView extends ItemView {
       facetDefs: defs,
       facets: facetsOf(this.facets, defs),
       filter: this.activeFilter(),
+      countColor: (value) => this.countColor(value, defs),
       hasSystem: this.onDisk(),
       canExport: this.onDisk() || canShareFiles(navigator),
       describe: this.describeContext(),

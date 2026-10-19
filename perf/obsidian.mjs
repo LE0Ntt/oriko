@@ -89,7 +89,7 @@ writeFileSync(join(vault, ".obsidian", "core-plugins.json"), JSON.stringify({}))
 
 const plugin = join(vault, ".obsidian", "plugins", "oriko");
 for (const f of ["main.js", "manifest.json", "styles.css"]) cpSync(join(root, "dist", f), join(plugin, f));
-for (const f of ["cache.json", "steam.json", "posts.json", "avatars"]) {
+for (const f of ["cache.json", "steam.json", "posts.json", "colors.json", "avatars"]) {
   clone(join(source, ".obsidian", "plugins", "oriko", f), join(plugin, f));
 }
 // Nothing reaches out to the network mid-measurement. Every site's cards
