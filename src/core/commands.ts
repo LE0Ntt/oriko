@@ -6,6 +6,8 @@ import type { FacetDef, FacetValue, FilterState } from "./filter";
 import type { FolderSpace } from "./folders";
 import { hotkeyPosition } from "./spaces";
 import type { GridSpace } from "./spaces";
+import { REVISIT_SIZE } from "./revisit";
+import type { RevisitForget, RevisitMark } from "./revisit";
 
 /**
  * Everything the palette can do, built fresh from the wall's current state.
@@ -47,6 +49,11 @@ export interface PaletteStage {
   onShow?: () => void;
   /** Shift-Backspace: drops what the stage is showing (the review's current clip). */
   discard?: () => void;
+  /**
+   * ← and →, taken by the stage while nothing is typed: Revisit's forget and
+   * keep. Without it they back out of the stage and move the caret as usual.
+   */
+  arrows?: { left: () => void; right: () => void };
 }
 
 export interface PaletteCommand {
@@ -114,6 +121,27 @@ export interface ReviewView {
   counts: { labels: number; clips: number };
 }
 
+/** What Revisit can offer on this wall. Null hides the row. */
+export interface RevisitContext {
+  /** Clips on this wall a new pass would draw from. */
+  available: number;
+  /** The pass under way, or null when none is. */
+  session: RevisitView | null;
+  /** What Forget does once the pass is finished. */
+  forget: RevisitForget;
+}
+
+/** The pass as the palette shows it: the clip on show and how it is marked. */
+export interface RevisitView {
+  position: number;
+  total: number;
+  path: string;
+  mark: RevisitMark | null;
+  counts: { kept: number; forgotten: number };
+  /** Every clip has been kept or forgotten. */
+  finished: boolean;
+}
+
 /** The work behind the rows, all of it already implemented by the view. */
 export interface PaletteActions {
   openNote(id: string): void;
@@ -150,6 +178,11 @@ export interface PaletteActions {
   /** Says how to fix something, for a row that can only explain. */
   showHint(text: string): void;
   applySuggestions(): void;
+  startRevisit(): void;
+  decideRevisit(mark: RevisitMark): void;
+  stepRevisit(delta: 1 | -1): void;
+  revisitShown(): void;
+  finishRevisit(): void;
 }
 
 export interface PaletteContext {
@@ -189,6 +222,8 @@ export interface PaletteContext {
   describe: DescribeContext | null;
   /** What the engine is missing when Describe is on but can't run, shown in place of its rows. */
   describeBlocked?: EngineBlocker | null;
+  /** Null off desktop, where there is no room for the clip beside the palette. */
+  revisit?: RevisitContext | null;
   actions: PaletteActions;
 }
 
@@ -849,6 +884,98 @@ function describeCommands(context: PaletteContext): PaletteCommand[] {
   return items;
 }
 
+const REVISIT_WORDS = "serendipity random shuffle rediscover forgotten old declutter tidy clean keep forget";
+
+/** The pass, one clip at a time: keep or forget it, then the way back and the way out. */
+function revisitStage(revisit: RevisitContext, actions: PaletteActions): PaletteStage {
+  const view = revisit.session;
+  const placeholder = "Keep it or forget it…";
+  if (!view) {
+    // Opening the row starts a pass, and the render that follows shows it.
+    // The placeholder is set from this stage, so it already says the right thing.
+    return { title: "Revisit", placeholder, items: () => [], onShow: () => actions.startRevisit() };
+  }
+  const marked = view.mark === "forget" ? " · forgetting" : view.mark === "keep" ? " · keeping" : "";
+  const archive = revisit.forget === "archive";
+  return {
+    title: `Revisit · ${view.position} of ${view.total}`,
+    placeholder,
+    subject: [view.path],
+    position: `${view.position} of ${view.total}${marked}`,
+    step: (delta) => actions.stepRevisit(delta),
+    onShow: () => actions.revisitShown(),
+    arrows: { left: () => actions.decideRevisit("forget"), right: () => actions.decideRevisit("keep") },
+    items: () => {
+      const finish: PaletteCommand = {
+        id: "revisit:finish",
+        label: "Finish",
+        icon: "check-check",
+        section: "Grids",
+        detail:
+          view.counts.forgotten > 0
+            ? `${archive ? "archive" : "forget"} ${count(view.counts.forgotten, "clip", "clips")}`
+            : "nothing to forget",
+        keywords: "done end close",
+        run: () => actions.finishRevisit(),
+      };
+      const rows: PaletteCommand[] = [
+        {
+          id: "revisit:keep",
+          label: "Keep",
+          icon: "heart",
+          section: "Grids",
+          ...(view.mark === "keep" ? { detailIcon: "check" } : { detail: "→" }),
+          keepOpen: true,
+          run: () => actions.decideRevisit("keep"),
+        },
+        {
+          id: "revisit:forget",
+          label: "Forget",
+          icon: archive ? "archive" : "trash-2",
+          section: "Grids",
+          ...(view.mark === "forget" ? { detailIcon: "check" } : { detail: "←" }),
+          destructive: true,
+          keepOpen: true,
+          run: () => actions.decideRevisit("forget"),
+        },
+      ];
+      if (view.position > 1) {
+        rows.push({
+          id: "revisit:previous",
+          label: "Previous clip",
+          icon: "arrow-left",
+          section: "Grids",
+          detail: "⇧⇥",
+          keepOpen: true,
+          run: () => actions.stepRevisit(-1),
+        });
+      }
+      // Once every clip is decided, finishing is the one thing left to do.
+      if (view.finished) return [finish, ...rows.map((row, i) => ({ ...row, divider: i === 0 }))];
+      return [...rows, { ...finish, divider: true }];
+    },
+  };
+}
+
+function revisitCommands(context: PaletteContext): PaletteCommand[] {
+  const revisit = context.revisit;
+  if (!revisit || (!revisit.session && revisit.available === 0)) return [];
+  const view = revisit.session;
+  return [
+    {
+      id: "revisit",
+      label: "Revisit",
+      icon: "shuffle",
+      section: "Grids",
+      detail: view
+        ? `${view.position} of ${view.total}`
+        : count(Math.min(REVISIT_SIZE, revisit.available), "clip", "clips"),
+      keywords: REVISIT_WORDS,
+      stage: revisitStage(revisit, context.actions),
+    },
+  ];
+}
+
 /**
  * In section order, which is the order the palette shows them in. Undo and
  * Redo come ahead of Select all and Reset zoom, which share their section.
@@ -857,6 +984,7 @@ export function buildCommands(context: PaletteContext): PaletteCommand[] {
   return [
     ...selectionCommands(context),
     ...describeCommands(context),
+    ...revisitCommands(context),
     ...gridCommands(context),
     ...filterCommands(context),
     ...historyCommands(context),

@@ -4,6 +4,7 @@ import type { PostSite } from "./posts";
 import type { GridLook, LookScope } from "./look";
 import type { FolderSpace } from "./folders";
 import type { GridSpace, SharedClipTarget } from "./spaces";
+import type { RevisitForget } from "./revisit";
 
 /**
  * How a site's card shows its details on the wall: a band under the picture
@@ -129,6 +130,8 @@ export interface OrikoSettings {
   describeNew: boolean;
   /** Full path to Claude Code, "" to discover it on PATH and in common installs. */
   claudePath: string;
+  /** What Forget does when a Revisit is finished: the note to Obsidian's trash, or marked archived. */
+  revisitForget: RevisitForget;
 }
 
 export const DEFAULT_SETTINGS: OrikoSettings = {
@@ -165,4 +168,5 @@ export const DEFAULT_SETTINGS: OrikoSettings = {
   describePreferLogin: false,
   describeNew: false,
   claudePath: "",
+  revisitForget: "trash",
 };

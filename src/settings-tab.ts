@@ -271,8 +271,30 @@ export class OrikoSettingTab extends PluginSettingTab {
           },
         ]
       : [];
+    // Desktop only, like Revisit itself: the clip needs the room beside the palette.
+    const revisit: SettingDefinitionItem[] = Platform.isDesktopApp
+      ? [
+          {
+            type: "group",
+            heading: "Revisit",
+            items: [
+              {
+                name: "Forgotten clips",
+                desc: "What happens to the clips you forget once you finish a Revisit. Archived clips stay on the wall with their status set to archived, and Revisit stops showing them.",
+                aliases: ["serendipity", "forget", "trash", "archive", "declutter"],
+                control: {
+                  type: "dropdown",
+                  key: "revisitForget",
+                  options: { trash: "Move to trash", archive: "Mark as archived" },
+                },
+              },
+            ],
+          },
+        ]
+      : [];
     return [
       ...describe,
+      ...revisit,
       {
         type: "group",
         heading: "Clippings",
@@ -639,6 +661,10 @@ export class OrikoSettingTab extends PluginSettingTab {
       case "describeEngine": {
         settings.describeEngine = value === "api-key" || value === "oriko-plus" ? value : "claude-code";
         return this.plugin.saveSettings().then(() => this.update());
+      }
+      case "revisitForget": {
+        settings.revisitForget = value === "archive" ? "archive" : "trash";
+        break;
       }
       case "gridLookScope": {
         settings.gridLookScope = value === "grid" ? "grid" : "all";

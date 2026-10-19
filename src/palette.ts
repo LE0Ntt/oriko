@@ -254,6 +254,18 @@ export class Palette {
       return;
     }
 
+    // A stage that answers with the arrows (Revisit's keep and forget) has
+    // them while nothing is typed; Escape and Backspace still back out.
+    const arrows = this.stage?.arrows;
+    if (arrows && (event.key === "ArrowLeft" || event.key === "ArrowRight") && (this.input?.value ?? "") === "") {
+      event.preventDefault();
+      if (event.key === "ArrowRight") arrows.right();
+      else arrows.left();
+      this.active = 0;
+      this.render();
+      return;
+    }
+
     // Into an argument list, out of it: the two horizontal keys, plus the
     // backspace that reads as deleting the chip you are typing behind.
     if (event.key === "ArrowRight" && this.atEnd()) {

@@ -15,10 +15,12 @@ import { setToolOverrides } from "./convert";
 import { ArchiveService } from "./archive-service";
 import { SteamService } from "./steam-service";
 import { ColorService } from "./color-service";
+import { RevisitService } from "./revisit-service";
 import { PostService } from "./post-service";
 import { CaptureService } from "./capture";
 import { ClippingIndex } from "./index-store";
 import { OrikoSettings, DEFAULT_SETTINGS, isCardMode } from "./core/settings";
+import { isRevisitForget } from "./core/revisit";
 import { isStage } from "./core/density";
 import {
   LEGACY_SHARED_FILES,
@@ -58,6 +60,7 @@ export default class OrikoPlugin extends Plugin {
   posts!: PostService;
   /** Each picture's palette on this device, for the Color filter. */
   colors!: ColorService;
+  revisit!: RevisitService;
   capture!: CaptureService;
   describer!: DescribeService;
   /** Describes clippings that land while the wall is open, when the setting asks for it. */
@@ -146,6 +149,11 @@ export default class OrikoPlugin extends Plugin {
     );
     await this.colors.load();
     this.register(() => this.colors.stop());
+    this.revisit = new RevisitService(
+      this.app,
+      this.manifest.dir ?? `${this.app.vault.configDir}/plugins/oriko`
+    );
+    await this.revisit.load();
     this.plus = new PlusAccount({
       license: () => this.plusLicense(),
       install: () => this.plusInstall(),
@@ -671,6 +679,7 @@ export default class OrikoPlugin extends Plugin {
     if (!isStage(this.settings.tileSize)) this.settings.tileSize = DEFAULT_SETTINGS.tileSize;
     if (!isCardMode(this.settings.steamCards)) this.settings.steamCards = DEFAULT_SETTINGS.steamCards;
     if (!isCardMode(this.settings.xCards)) this.settings.xCards = DEFAULT_SETTINGS.xCards;
+    if (!isRevisitForget(this.settings.revisitForget)) this.settings.revisitForget = DEFAULT_SETTINGS.revisitForget;
     // A post site added since this vault last saved its settings starts the
     // way X posts already show, so the wall does not change under you.
     for (const key of ["instagramCards", "threadsCards", "youtubeCards"] as const) {

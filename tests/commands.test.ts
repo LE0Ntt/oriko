@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DESCRIBE_DEPTHS, buildCommands, facetValueCommands, offersDescribe } from "../src/core/commands";
-import type { DescribeContext, PaletteContext, ReviewView } from "../src/core/commands";
+import type { DescribeContext, PaletteContext, ReviewView, RevisitContext, RevisitView } from "../src/core/commands";
 import { emptyFilter, facetDefs } from "../src/core/filter";
 import { searchPalette } from "../src/core/palette-results";
 
@@ -41,6 +41,11 @@ const actions = {
   discardClip: noop,
   discardAll: noop,
   showHint: noop,
+  startRevisit: noop,
+  decideRevisit: noop,
+  stepRevisit: noop,
+  revisitShown: noop,
+  finishRevisit: noop,
 };
 
 function context(over: Partial<PaletteContext> = {}): PaletteContext {
@@ -765,4 +770,85 @@ describe("describe commands", () => {
     expect(retry?.detail).toBe("4");
   });
 
+});
+
+describe("revisit commands", () => {
+  const pass = (over: Partial<RevisitView> = {}): RevisitView => ({
+    position: 1,
+    total: 20,
+    path: "a.md",
+    mark: null,
+    counts: { kept: 0, forgotten: 0 },
+    finished: false,
+    ...over,
+  });
+  const revisit = (over: Partial<RevisitContext> = {}): RevisitContext => ({
+    available: 140,
+    session: null,
+    forget: "trash",
+    ...over,
+  });
+  const rows = (ctx: PaletteContext): string[] =>
+    find(ctx, "revisit")?.stage?.items().map((row) => row.id) ?? [];
+
+  it("is offered on a wall with clips, and not where there is no room for it", () => {
+    expect(ids(context({ revisit: revisit() }))).toContain("revisit");
+    expect(ids(context({ revisit: revisit({ available: 0 }) }))).not.toContain("revisit");
+    expect(ids(context({ revisit: null }))).not.toContain("revisit");
+  });
+
+  it("says how many clips a pass will show, or where the pass under way is", () => {
+    expect(find(context({ revisit: revisit() }), "revisit")?.detail).toBe("20 clips");
+    expect(find(context({ revisit: revisit({ available: 6 }) }), "revisit")?.detail).toBe("6 clips");
+    expect(find(context({ revisit: revisit({ session: pass({ position: 3 }) }) }), "revisit")?.detail).toBe(
+      "3 of 20"
+    );
+  });
+
+  it("starts a pass when its stage opens", () => {
+    let started = 0;
+    const ctx = context({ revisit: revisit(), actions: { ...actions, startRevisit: () => started++ } });
+    find(ctx, "revisit")?.stage?.onShow?.();
+    expect(started).toBe(1);
+  });
+
+  it("shows the clip with keep, forget and finish", () => {
+    const ctx = context({ revisit: revisit({ session: pass() }) });
+    const stage = find(ctx, "revisit")?.stage;
+    expect(stage?.subject).toEqual(["a.md"]);
+    expect(stage?.position).toBe("1 of 20");
+    expect(rows(ctx)).toEqual(["revisit:keep", "revisit:forget", "revisit:finish"]);
+  });
+
+  it("offers the previous clip after the first", () => {
+    expect(rows(context({ revisit: revisit({ session: pass({ position: 2 }) }) }))).toContain("revisit:previous");
+  });
+
+  it("puts finish first once every clip is decided", () => {
+    expect(rows(context({ revisit: revisit({ session: pass({ finished: true }) }) }))[0]).toBe("revisit:finish");
+  });
+
+  it("marks the clip's decision and says what finishing will do", () => {
+    const ctx = context({
+      revisit: revisit({ session: pass({ mark: "forget", counts: { kept: 2, forgotten: 3 } }), forget: "archive" }),
+    });
+    const stage = find(ctx, "revisit")?.stage;
+    const items = stage?.items() ?? [];
+    expect(stage?.position).toBe("1 of 20 · forgetting");
+    expect(items.find((row) => row.id === "revisit:forget")?.detailIcon).toBe("check");
+    expect(items.find((row) => row.id === "revisit:forget")?.icon).toBe("archive");
+    expect(items.find((row) => row.id === "revisit:finish")?.detail).toBe("archive 3 clips");
+  });
+
+  it("answers the arrows with forget and keep", () => {
+    const marks: string[] = [];
+    const ctx = context({
+      revisit: revisit({ session: pass() }),
+      actions: { ...actions, decideRevisit: (mark) => marks.push(mark) },
+    });
+    const arrows = find(ctx, "revisit")?.stage?.arrows;
+    arrows?.left();
+    arrows?.right();
+    expect(marks).toEqual(["forget", "keep"]);
+  });
 });

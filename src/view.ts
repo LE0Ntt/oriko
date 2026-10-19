@@ -7,7 +7,7 @@ import type { ShareItem } from "./core/share";
 import { mimeForPath } from "./core/formats";
 import { ActionBar } from "./action-bar";
 import { DESCRIBE_DEPTHS, buildCommands, facetValueCommands, offersDescribe } from "./core/commands";
-import type { DescribeContext, PaletteContext } from "./core/commands";
+import type { DescribeContext, PaletteContext, RevisitContext } from "./core/commands";
 import { ConfirmDeleteModal } from "./confirm";
 import { isDateToken, todayISO } from "./core/dates";
 import { settled } from "./core/settle";
@@ -1232,13 +1232,14 @@ export class OrikoView extends ItemView {
     if (notice) new Notice(notice);
   }
 
-  private confirmDelete(ids: string[]): void {
+  /** @param after runs once the clippings are gone, never on a cancel. */
+  private confirmDelete(ids: string[], after?: () => void): void {
     const titles = ids.map((id) => this.plugin.index.get(id)?.title ?? id);
     const media = this.doomedMedia(ids);
     new ConfirmDeleteModal(
       this.app,
       titles,
-      () => void this.deleteClippings(ids, media.paths),
+      () => void this.deleteClippings(ids, media.paths).then(after),
       media.paths.length > 0 ? describeFiles(media) : undefined
     ).open();
   }
@@ -1894,6 +1895,7 @@ export class OrikoView extends ItemView {
       canExport: this.onDisk() || canShareFiles(navigator),
       describe: this.describeContext(),
       describeBlocked: this.plugin.describeBlocked(),
+      revisit: this.revisitContext(defs),
       // Every row runs the method its context-menu equivalent runs. The two
       // surfaces list different things; neither reimplements the work.
       actions: {
@@ -1936,8 +1938,61 @@ export class OrikoView extends ItemView {
         discardAll: () => void this.plugin.describer.discardAll(this.describeWriter()),
         showHint: (text) => new Notice(`Oriko: ${text}`),
         applySuggestions: () => void this.plugin.describer.apply(this.describeWriter()),
+        startRevisit: () => this.plugin.revisit.start(this.revisitPaths(defs)),
+        decideRevisit: (mark) => this.plugin.revisit.decide(mark),
+        stepRevisit: (delta) => this.plugin.revisit.step(delta),
+        revisitShown: () => this.plugin.revisit.shown(),
+        finishRevisit: () => void this.finishRevisit(),
       },
     };
+  }
+
+  /** What Revisit can offer on this wall, or null off desktop, where the clip has no room beside the palette. */
+  private revisitContext(defs: FacetDef[]): RevisitContext | null {
+    if (!Platform.isDesktopApp) return null;
+    const session = this.plugin.revisit.view();
+    return {
+      // Only counted when it is shown: a pass under way says where it is instead.
+      available: session ? 0 : this.revisitPaths(defs).length,
+      session,
+      forget: this.plugin.settings.revisitForget,
+    };
+  }
+
+  /**
+   * The clips a Revisit draws from: what this wall shows, folder members
+   * included, narrowed by the filter, less anything already archived. So a
+   * wall filtered to one label revisits that label.
+   */
+  private revisitPaths(defs: FacetDef[]): string[] {
+    const filter = this.activeFilter();
+    const tiles = [...this.facets, ...this.folderTiles.flatMap((folder) => folder.members)];
+    const shown = isFilterEmpty(filter) ? tiles : tiles.filter((tile) => matchesFilter(tile, filter, defs));
+    return shown.map((tile) => tile.id).filter((path) => this.plugin.index.get(path)?.status !== "archived");
+  }
+
+  /**
+   * Ends a Revisit and does what Forget said: the forgotten clips go to the
+   * trash behind the usual confirmation, or are marked archived. Cancelling
+   * the confirmation leaves the pass where it was, marks and all.
+   */
+  private async finishRevisit(): Promise<void> {
+    const revisit = this.plugin.revisit;
+    const exists = (path: string): boolean => this.plugin.index.get(path) !== undefined;
+    const forgotten = revisit.forgotten().filter(exists);
+    if (forgotten.length === 0) {
+      const seen = await revisit.end(exists);
+      new Notice(`Oriko: revisited ${seen === 1 ? "1 clip" : `${seen} clips`} and kept them all`);
+      return;
+    }
+    if (this.plugin.settings.revisitForget === "archive") {
+      let archived = 0;
+      for (const path of forgotten) if (await this.setProperties(path, { status: "archived" })) archived++;
+      await revisit.end(exists);
+      new Notice(`Oriko: ${archived === 1 ? "1 clip" : `${archived} clips`} archived`);
+      return;
+    }
+    this.confirmDelete(forgotten, () => void revisit.end(exists));
   }
 
   /**
