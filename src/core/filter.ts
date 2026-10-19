@@ -1,6 +1,8 @@
+import { colorOrder, colorScore, colorsIn, hasColor, isHexColor } from "./colors";
 import { bucketLabels, dateBuckets, dateTokenMatches, isDateProperty, tokenLabel } from "./dates";
 import { holdingAcross } from "./editable";
 import { domainOf } from "./scan";
+import type { Swatch } from "./swatches";
 import type { TileModel } from "./tile";
 
 /**
@@ -24,7 +26,10 @@ import type { TileModel } from "./tile";
  * without any of this knowing its name.
  */
 
-export type FacetSource = "property" | "kind" | "domain";
+export type FacetSource = "property" | "kind" | "domain" | "color";
+
+/** A tile's palette as this device read it, or undefined while it has not been read. */
+export type PaletteLookup = (tile: TileModel) => readonly Swatch[] | undefined;
 
 export interface FacetDef {
   /** The FilterState key and the menu item id. For a property facet this is
@@ -42,6 +47,9 @@ export interface FacetDef {
   /** Reference instant for date bucketing. Carried on the descriptor so the
       per-tile calls below keep their signatures. */
   now?: number;
+  /** Where the colour facet reads each tile's palette. Set only when source
+      is "color"; without it the facet has nothing to offer. */
+  palette?: PaletteLookup;
 }
 
 /** Chosen values, by facet id. A facet with nothing chosen is absent rather
@@ -72,6 +80,14 @@ const KIND_FACET: FacetDef = {
   source: "kind",
 };
 
+const COLOR_FACET: FacetDef = {
+  id: "color",
+  label: "Color",
+  icon: "palette",
+  keywords: "colour color hue shade swatch tone narrow",
+  source: "color",
+};
+
 const DOMAIN_FACET: FacetDef = {
   id: "domain",
   label: "Source",
@@ -88,10 +104,11 @@ export function facetLabel(key: string): string {
 
 /**
  * The facets on offer: the user's chosen properties in their order, then the
- * two the plugin derives. Properties lead so the default settings reproduce
- * the menu this feature replaced, exactly.
+ * three the plugin derives. Properties lead so the default settings reproduce
+ * the menu this feature replaced, exactly. Colour leads the derived three,
+ * being the one of them you are most likely to reach for.
  */
-export function facetDefs(properties: string[]): FacetDef[] {
+export function facetDefs(properties: string[], palette?: PaletteLookup): FacetDef[] {
   const defs: FacetDef[] = properties.map((key) => ({
     id: key,
     label: facetLabel(key),
@@ -100,7 +117,7 @@ export function facetDefs(properties: string[]): FacetDef[] {
     source: "property",
     key,
   }));
-  return [...defs, KIND_FACET, DOMAIN_FACET];
+  return [...defs, { ...COLOR_FACET, palette }, KIND_FACET, DOMAIN_FACET];
 }
 
 /**
@@ -214,6 +231,10 @@ function valuesFor(tile: TileModel, def: FacetDef): string[] {
       const domain = domainOf(tile.record.source);
       return domain ? [domain] : [];
     }
+    case "color": {
+      const palette = def.palette?.(tile);
+      return palette ? colorsIn(palette) : [];
+    }
   }
 }
 
@@ -233,6 +254,13 @@ export function matchesFilter(
 
     const held = valuesFor(tile, def);
     if (held.some((value) => wanted.includes(value))) return true;
+
+    // A hex code is a point rather than a word any palette is filed under,
+    // so it is measured against the palette instead.
+    if (def.source === "color") {
+      const palette = def.palette?.(tile);
+      return !!palette && wanted.some((value) => isHexColor(value) && hasColor(palette, value));
+    }
 
     // A comparison is not a value the tile reports, so membership cannot see
     // it. Only dates carry these, and only when one has been set.
@@ -395,6 +423,12 @@ function tally(tiles: TileModel[], def: FacetDef): FacetValue[] {
     return values.sort((a, b) => order.indexOf(a.value) - order.indexOf(b.value));
   }
 
+  // Colours read round the spectrum, families before shades, for the same
+  // reason: a list of colours ordered by count is a list you have to read.
+  if (def.source === "color") {
+    return values.sort((a, b) => colorOrder(a.value) - colorOrder(b.value));
+  }
+
   // Most used first, then alphabetically, so the order is stable between
   // openings rather than shuffling as counts happen to tie. Empty goes last
   // whatever its count: it is the absence of the values above it, not one of
@@ -419,4 +453,38 @@ export function facetsOf(
   const out: Record<string, FacetValue[]> = {};
   for (const def of defs) out[def.id] = tally(tiles, def);
   return out;
+}
+
+/**
+ * The tiles with the most of a chosen colour first, when a colour is chosen
+ * in any of `filters` (the wall's filter, and a smart grid's rules).
+ *
+ * The one facet that reorders. Every other value is held or not, but a
+ * colour is held by degree, and a wall that answers "maroon" with a photo
+ * that has a maroon scarf in it ahead of a mostly maroon poster reads as the
+ * search not listening. Stable, so tiles that are just as close keep the
+ * wall's own order, newest first. Returns the same array when no colour is
+ * chosen, so the caller can tell nothing changed.
+ */
+export function rankByColor(
+  tiles: TileModel[],
+  filters: readonly FilterState[],
+  defs: FacetDef[]
+): TileModel[] {
+  const def = defs.find((candidate) => candidate.source === "color");
+  const lookup = def?.palette;
+  if (!def || !lookup) return tiles;
+  const chosen = [...new Set(filters.flatMap((filter) => filter[def.id] ?? []))];
+  if (chosen.length === 0) return tiles;
+
+  const strength = (tile: TileModel): number => {
+    const palette = lookup(tile);
+    if (!palette) return 0;
+    return Math.max(...chosen.map((value) => colorScore(palette, value)));
+  };
+
+  return tiles
+    .map((tile, at) => ({ tile, at, score: strength(tile) }))
+    .sort((a, b) => b.score - a.score || a.at - b.at)
+    .map((entry) => entry.tile);
 }

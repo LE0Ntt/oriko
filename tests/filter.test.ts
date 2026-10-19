@@ -11,6 +11,7 @@ import {
   isFilterEmpty,
   matchesFilter,
   propertyVocabulary,
+  rankByColor,
   heldFirst,
   pruneFilter,
   withHeldValues,
@@ -19,6 +20,7 @@ import {
   valueLabel,
 } from "../src/core/filter";
 import type { FilterState, PropertyVocabulary } from "../src/core/filter";
+import type { Swatch } from "../src/core/swatches";
 import type { TileModel } from "../src/core/tile";
 
 function tile(
@@ -176,7 +178,13 @@ describe("facetsOf", () => {
   });
 
   it("offers nothing at all for an empty wall", () => {
-    expect(facetsOf([], DEFS)).toEqual({ categories: [], status: [], kind: [], domain: [] });
+    expect(facetsOf([], DEFS)).toEqual({
+      categories: [],
+      status: [],
+      color: [],
+      kind: [],
+      domain: [],
+    });
   });
 });
 
@@ -185,6 +193,7 @@ describe("facetDefs", () => {
     expect(facetDefs(["categories", "status"]).map((d) => d.id)).toEqual([
       "categories",
       "status",
+      "color",
       "kind",
       "domain",
     ]);
@@ -196,7 +205,7 @@ describe("facetDefs", () => {
   });
 
   it("always offers the derived facets, even with no properties configured", () => {
-    expect(facetDefs([]).map((d) => d.id)).toEqual(["kind", "domain"]);
+    expect(facetDefs([]).map((d) => d.id)).toEqual(["color", "kind", "domain"]);
   });
 });
 
@@ -553,5 +562,92 @@ describe("isEmptyValue", () => {
     expect(isEmptyValue(categories, "empty")).toBe(false);
     expect(isEmptyValue(published, "empty")).toBe(true);
     expect(isEmptyValue(published, EMPTY_VALUE)).toBe(false);
+  });
+});
+
+describe("the colour facet", () => {
+  const palettes: Record<string, Swatch[]> = {
+    wine: [{ hex: "#800000", share: 0.8 }, { hex: "#EEEEEE", share: 0.2 }],
+    scarf: [{ hex: "#EEEEEE", share: 0.9 }, { hex: "#800000", share: 0.1 }],
+    sea: [{ hex: "#3366CC", share: 1 }],
+  };
+  const wall = [tile("wine"), tile("scarf"), tile("sea"), tile("unread-yet")];
+  const defs = facetDefs([], (t) => palettes[t.id]);
+  const shown = (filter: FilterState): string[] =>
+    wall.filter((t) => matchesFilter(t, filter, defs)).map((t) => t.id);
+
+  it("finds the clippings whose pictures are a colour", () => {
+    expect(shown({ color: ["maroon"] })).toEqual(["wine", "scarf"]);
+    expect(shown({ color: ["blue"] })).toEqual(["sea"]);
+  });
+
+  it("finds them by a hex code too", () => {
+    expect(shown({ color: ["#7A0A0A"] })).toEqual(["wine", "scarf"]);
+  });
+
+  it("takes any of several colours, as every facet does", () => {
+    expect(shown({ color: ["maroon", "blue"] })).toEqual(["wine", "scarf", "sea"]);
+  });
+
+  it("offers the colours on the wall in spectrum order, with counts", () => {
+    const offered = facetsOf(wall, defs).color;
+    const names = offered.map((entry) => entry.value);
+    expect(names.indexOf("red")).toBeLessThan(names.indexOf("blue"));
+    expect(names.indexOf("blue")).toBeLessThan(names.indexOf("maroon"));
+    expect(offered.find((entry) => entry.value === "maroon")?.count).toBe(2);
+  });
+
+  it("offers nothing for a picture this device has not read yet", () => {
+    expect(facetsOf([tile("unread-yet")], defs).color).toEqual([]);
+  });
+
+  it("offers nothing without a way to read palettes", () => {
+    expect(facetsOf(wall, facetDefs([])).color).toEqual([]);
+  });
+});
+
+describe("rankByColor", () => {
+  const palettes: Record<string, Swatch[]> = {
+    scarf: [{ hex: "#EEEEEE", share: 0.9 }, { hex: "#800000", share: 0.1 }],
+    wine: [{ hex: "#800000", share: 0.8 }, { hex: "#EEEEEE", share: 0.2 }],
+    sea: [{ hex: "#3366CC", share: 1 }],
+    ocean: [{ hex: "#3366CC", share: 1 }],
+  };
+  const defs = facetDefs([], (t) => palettes[t.id]);
+  const wall = [tile("scarf"), tile("sea"), tile("wine"), tile("ocean")];
+  const ids = (list: TileModel[]): string[] => list.map((t) => t.id);
+
+  it("puts the clippings with the most of a chosen colour first", () => {
+    expect(ids(rankByColor(wall, [{ color: ["maroon"] }], defs))).toEqual([
+      "wine",
+      "scarf",
+      "sea",
+      "ocean",
+    ]);
+  });
+
+  it("keeps the wall's own order between clippings that are just as close", () => {
+    expect(ids(rankByColor(wall, [{ color: ["blue"] }], defs))).toEqual([
+      "sea",
+      "ocean",
+      "scarf",
+      "wine",
+    ]);
+  });
+
+  it("ranks by the best of several chosen colours", () => {
+    expect(ids(rankByColor(wall, [{ color: ["maroon", "blue"] }], defs)).slice(0, 2)).toEqual([
+      "sea",
+      "ocean",
+    ]);
+  });
+
+  it("reads colours chosen in a smart grid's rules as well as the filter", () => {
+    expect(ids(rankByColor(wall, [{}, { color: ["maroon"] }], defs))[0]).toBe("wine");
+  });
+
+  it("leaves the wall alone when no colour is chosen", () => {
+    const untouched = rankByColor(wall, [{ categories: ["design"] }], defs);
+    expect(untouched).toBe(wall);
   });
 });
