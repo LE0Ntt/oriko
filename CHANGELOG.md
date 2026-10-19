@@ -5,6 +5,13 @@ All notable changes to Oriko will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.75] - 2026-10-19
+
+### Added
+- **Revisit brings back clips you'd forgotten about.** Choose Revisit from ⌘K and Oriko pulls up to 20 clips at random from the wall you're on, one at a time beside the palette. Press → to keep a clip or ← to forget it, then pick Finish. It's a quick way to rediscover something you saved months ago, or to clear out what you no longer need.
+- **Nothing is forgotten until you finish.** Changed your mind? Shift-Tab steps back so you can keep it after all. Forgotten clips go to Obsidian's trash once you confirm, along with any pictures and videos only they used. If you'd rather hang on to them, set Settings → Oriko → Revisit → Forgotten clips to Mark as archived and they'll stay on the wall, marked archived and out of later passes.
+- **Revisit follows your filter.** Narrow the wall to food first and you get a pass of food. Clips you've seen in the last month wait their turn, so you aren't shown the same ones twice. Keep in mind Revisit is desktop only for now.
+
 ## [0.1.74] - 2026-10-18
 
 ### Added

@@ -84,6 +84,12 @@ You pick how Describe runs:
 
 Oriko is independent of Anthropic.
 
+## Revisit
+
+Clip enough things and most of them sink out of sight. **Revisit** brings them back a few at a time: choose it from ⌘K and up to 20 clips, picked at random from the wall you're on, come up one by one beside the palette. Press → to keep a clip or ← to forget it, Tab to skip one, Shift-Tab to go back, and **Finish** when you're done. Revisit follows whatever filter is on, and a clip you've seen in the last month waits its turn while there are others to show.
+
+Nothing is forgotten until you finish. Forgotten clips then go to Obsidian's trash after you confirm, along with any media only they used. To keep them instead, set **Settings → Oriko → Revisit → Forgotten clips** to **Mark as archived**: they stay on the wall with their status set to archived, and later passes leave them out. Revisit is desktop only for now.
+
 ## Downloads
 
 Remote media is copied into your attachment folder under a name derived from its URL, so the same asset shared by several clippings is stored once. Posters and thumbnails are generated for videos and GIFs, and downloads above a size cap are skipped.
